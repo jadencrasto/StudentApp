@@ -298,5 +298,8 @@ async def save_as_assignment_endpoint(
     Manually trigger conversion of extracted data to an official Assignment record.
     """
     assignment = await assignment_service.create_assignment_from_document(user.id, doc_id, db)
+    if not assignment:
+        raise HTTPException(status_code=400, detail="Could not create assignment from document. Ensure the document has extracted data.")
     await db.commit()
+    await db.refresh(assignment)
     return assignment

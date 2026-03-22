@@ -11,7 +11,7 @@ from app.services.time_estimator import estimate_assignment_time
 router = APIRouter(prefix="/assignments", tags=["Assignments"])
 
 
-@router.post("/", response_model=AssignmentOut, status_code=201)
+@router.post("", response_model=AssignmentOut, status_code=201)
 async def create(
     data: AssignmentCreate,
     db: AsyncSession = Depends(get_db),
@@ -21,7 +21,7 @@ async def create(
     return await assignment_service.create_assignment(current_user.id, data, db)
 
 
-@router.get("/", response_model=list[AssignmentOut])
+@router.get("", response_model=list[AssignmentOut])
 async def list_assignments(
     status:  str | None = Query(default=None),
     subject: str | None = Query(default=None),

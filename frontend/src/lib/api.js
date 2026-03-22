@@ -8,7 +8,7 @@
  */
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+const BASE_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/v1";
 
 export const api = axios.create({
   baseURL: BASE_URL,
@@ -27,8 +27,14 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem("sais_token");
-      window.location.href = "/login";
+      // Only redirect for actual SAIS auth failures,
+      // not for third-party credential issues (e.g. Google OAuth)
+      const url = err.config?.url || '';
+      const isClassroomRoute = url.includes('/classroom/');
+      if (!isClassroomRoute) {
+        localStorage.removeItem("sais_token");
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(err);
   }
@@ -45,10 +51,8 @@ export const authAPI = {
 export const assignmentsAPI = {
   list:           (params) => api.get("/assignments", { params }),
   create:         (data)   => api.post("/assignments", data),
-  update:         (id, data) => api.put(`/assignments/${id}`, data),
+  update:         (id, data) => api.patch(`/assignments/${id}`, data),
   remove:         (id)     => api.delete(`/assignments/${id}`),
-  listSubjects:   ()       => api.get("/assignments/subjects"),
-  createSubject:  (data)   => api.post("/assignments/subjects", data),
 };
 
 // ── Attendance ────────────────────────────────────────────────────────────
@@ -66,7 +70,6 @@ export const attendanceAPI = {
 export const activitiesAPI = {
   list:   ()       => api.get("/activities"),
   create: (data)   => api.post("/activities", data),
-  update: (id, d)  => api.put(`/activities/${id}`, d),
   remove: (id)     => api.delete(`/activities/${id}`),
 };
 
@@ -89,7 +92,6 @@ export const documentsAPI = {
 export const alertsAPI = {
   list:      ()   => api.get("/alerts"),
   refresh:   ()   => api.post("/alerts/refresh"),
-  markRead:  (id) => api.put(`/alerts/${id}/read`),
-  dismiss:   (id) => api.put(`/alerts/${id}/dismiss`),
+  markRead:  (id) => api.patch(`/alerts/${id}/read`),
   dashboard: ()   => api.get("/dashboard"),
 };

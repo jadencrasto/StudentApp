@@ -118,6 +118,7 @@ class ClassroomClient:
                     "status": status,
                     "is_overdue": bool(parsed_due_date and parsed_due_date < now),
                     "posted_at": work.get("creationTime"),
+                    "attachments": self._extract_attachments(work.get("materials")),
                 }
             )
 
@@ -155,3 +156,79 @@ class ClassroomClient:
             if not page_token:
                 break
         return items
+
+    # ── Course materials (documents / resources posted by teachers) ──
+
+    @staticmethod
+    def _extract_attachments(materials: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        """Normalise Google Classroom 'materials' array into a flat list of attachments."""
+        if not materials:
+            return []
+        attachments: list[dict[str, Any]] = []
+        for mat in materials:
+            if "driveFile" in mat:
+                df = mat["driveFile"].get("driveFile", {})
+                attachments.append({
+                    "type": "drive",
+                    "title": df.get("title", "Untitled"),
+                    "url": df.get("alternateLink", ""),
+                    "thumbnail": df.get("thumbnailUrl", ""),
+                })
+            elif "youtubeVideo" in mat:
+                yt = mat["youtubeVideo"]
+                attachments.append({
+                    "type": "youtube",
+                    "title": yt.get("title", "YouTube Video"),
+                    "url": yt.get("alternateLink", ""),
+                    "thumbnail": yt.get("thumbnailUrl", ""),
+                })
+            elif "link" in mat:
+                lk = mat["link"]
+                attachments.append({
+                    "type": "link",
+                    "title": lk.get("title", lk.get("url", "Link")),
+                    "url": lk.get("url", ""),
+                    "thumbnail": lk.get("thumbnailUrl", ""),
+                })
+            elif "form" in mat:
+                fm = mat["form"]
+                attachments.append({
+                    "type": "form",
+                    "title": fm.get("title", "Google Form"),
+                    "url": fm.get("formUrl", ""),
+                    "thumbnail": fm.get("thumbnailUrl", ""),
+                })
+        return attachments
+
+    def get_course_materials(self, course_id: str) -> list[dict[str, Any]]:
+        """Fetch courseWorkMaterials (teacher-posted documents/resources)."""
+        items: list[dict[str, Any]] = []
+        page_token: str | None = None
+        while True:
+            try:
+                resp = self.service.courses().courseWorkMaterials().list(
+                    courseId=course_id,
+                    pageSize=100,
+                    pageToken=page_token,
+                ).execute()
+            except Exception:
+                # courseWorkMaterials may not be available on older API versions
+                break
+            items.extend(resp.get("courseWorkMaterial", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+
+        result: list[dict[str, Any]] = []
+        for mat in items:
+            result.append({
+                "id": mat.get("id"),
+                "title": mat.get("title", "Untitled Material"),
+                "description": mat.get("description", ""),
+                "state": mat.get("state", ""),
+                "alternate_link": mat.get("alternateLink", ""),
+                "creation_time": mat.get("creationTime"),
+                "update_time": mat.get("updateTime"),
+                "attachments": self._extract_attachments(mat.get("materials")),
+            })
+        return result

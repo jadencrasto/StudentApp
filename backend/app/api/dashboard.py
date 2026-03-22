@@ -8,11 +8,12 @@ from app.models.assignment import Assignment, AssignmentStatus
 from app.models.activity import Activity
 from app.services.attendance_service import get_attendance_summary
 from app.services.alert_service import get_alerts
+from app.schemas.schemas import DashboardOut
 from datetime import date, timedelta
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
-@router.get("/")
+@router.get("", response_model=DashboardOut)
 async def get_dashboard_data(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

@@ -6,7 +6,8 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classroom.oauth import build_google_connect_url, exchange_code_and_store
-from app.classroom.service import get_courses, get_events
+from app.classroom.service import get_courses, get_events, get_materials, sync_all
+from app.services.assignment_service import sync_classroom_assignments
 from app.config import settings
 from app.core.security import decode_access_token
 from app.core.dependencies import get_current_user
@@ -14,10 +15,14 @@ from app.database import get_db
 from app.models.integrations import GoogleToken
 from app.models.user import User
 
+# OAuth routes — mounted at app root level (outside /api/v1)
+# so the callback matches what's registered in Google Cloud Console
+oauth_router = APIRouter(tags=["Google OAuth"])
+
 router = APIRouter(tags=["Classroom"])
 
 
-@router.get("/auth/google/debug-config")
+@oauth_router.get("/auth/google/debug-config")
 async def google_debug_config():
     client_id = settings.GOOGLE_CLIENT_ID or ""
     return {
@@ -29,7 +34,7 @@ async def google_debug_config():
     }
 
 
-@router.get("/auth/google/connect")
+@oauth_router.get("/auth/google/connect")
 async def google_connect(
     token: str = Query(..., min_length=20),
     db: AsyncSession = Depends(get_db),
@@ -52,7 +57,7 @@ async def google_connect(
     return RedirectResponse(url=url)
 
 
-@router.get("/auth/google/callback")
+@oauth_router.get("/auth/google/callback")
 async def google_callback(
     code: str,
     state: str,
@@ -61,7 +66,7 @@ async def google_callback(
     await exchange_code_and_store(db, code, state)
     # Redirect to whichever frontend port is active
     frontend_url = settings.ALLOWED_ORIGINS.split(",")[0].strip()
-    return RedirectResponse(url=f"{frontend_url}/classroom?connected=1")
+    return RedirectResponse(url=f"{frontend_url}/dashboard/classroom?connected=1")
 
 
 @router.get("/classroom/courses")
@@ -77,7 +82,48 @@ async def classroom_events(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await get_events(db, current_user.id)
+    events = await get_events(db, current_user.id)
+    # Auto-sync classroom assignments into the assignments table
+    try:
+        await sync_classroom_assignments(current_user.id, events, db)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Classroom → assignments sync failed for user %s", current_user.id, exc_info=True
+        )
+    return events
+
+
+@router.get("/classroom/materials")
+async def classroom_materials(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch course materials (documents, drive files, links) from all connected courses."""
+    return await get_materials(db, current_user.id)
+
+
+@router.get("/classroom/sync")
+async def classroom_sync(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Combined sync: fetch courses, events, and materials in one request.
+
+    Returns { courses: [...], events: [...], materials: [...] }
+    This is faster than calling /courses, /events, /materials separately because
+    it only fetches the course list once and avoids redundant Google API calls.
+    """
+    data = await sync_all(db, current_user.id)
+    # Auto-sync classroom assignments into the assignments table
+    try:
+        await sync_classroom_assignments(current_user.id, data["events"], db)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Classroom → assignments sync failed for user %s", current_user.id, exc_info=True
+        )
+    return data
 
 
 @router.get("/classroom/status")

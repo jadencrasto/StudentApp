@@ -44,8 +44,8 @@ function DropZone({ onFile }) {
     <div
       className={`relative border-2 border-dashed rounded-2xl p-12 text-center transition-all cursor-pointer ${
         dragging
-          ? "border-accent bg-accent/5"
-          : "border-slate-700 hover:border-slate-600 bg-slate-900/50"
+          ? "border-emerald-500 bg-emerald-500/5"
+          : "border-white/10 hover:border-emerald-500/30 bg-black/40 backdrop-blur-md"
       }`}
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
@@ -60,20 +60,20 @@ function DropZone({ onFile }) {
         onChange={(e) => e.target.files[0] && onFile(e.target.files[0])}
       />
       <div className="flex flex-col items-center gap-3">
-        <div className="w-14 h-14 bg-slate-800 rounded-2xl flex items-center justify-center">
-          <Upload size={24} className="text-accent" />
+        <div className="w-14 h-14 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center">
+          <Upload size={24} className="text-emerald-500" />
         </div>
         <div>
           <p className="text-paper font-medium">Drop a file here or click to browse</p>
           <p className="text-slate-500 text-sm mt-1">PDF, PNG, JPEG, or TXT — max 10 MB</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-600">
-          <span className="px-2 py-1 bg-slate-800 rounded">PDF</span>
-          <span className="px-2 py-1 bg-slate-800 rounded">DOC</span>
-          <span className="px-2 py-1 bg-slate-800 rounded">DOCX</span>
-          <span className="px-2 py-1 bg-slate-800 rounded">PNG</span>
-          <span className="px-2 py-1 bg-slate-800 rounded">JPEG</span>
-          <span className="px-2 py-1 bg-slate-800 rounded">TXT</span>
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span className="px-2 py-1 bg-white/5 border border-white/10 rounded">PDF</span>
+          <span className="px-2 py-1 bg-white/5 border border-white/10 rounded">DOC</span>
+          <span className="px-2 py-1 bg-white/5 border border-white/10 rounded">DOCX</span>
+          <span className="px-2 py-1 bg-white/5 border border-white/10 rounded">PNG</span>
+          <span className="px-2 py-1 bg-white/5 border border-white/10 rounded">JPEG</span>
+          <span className="px-2 py-1 bg-white/5 border border-white/10 rounded">TXT</span>
         </div>
       </div>
     </div>
@@ -158,11 +158,11 @@ export default function DocumentsPage() {
               <Card
                 id={`document-${doc.id}`}
                 key={doc.id}
-                className={`hover:border-slate-700 transition-colors ${selectedDocId === doc.id ? "ring-2 ring-amber-400/40 border-amber-400/40" : ""}`}
+                className={`hover:border-emerald-500/30 transition-colors ${selectedDocId === doc.id ? "ring-2 ring-emerald-500/40 border-emerald-500/40" : ""}`}
               >
                 <div className="flex items-center gap-4">
                   {/* File type icon */}
-                  <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <div className="w-10 h-10 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center flex-shrink-0">
                     {FILE_ICON[doc.file_type] || FILE_ICON.txt}
                   </div>
 
@@ -210,27 +210,27 @@ export default function DocumentsPage() {
       </div>
 
       {/* How it works */}
-      <Card className="mt-8 bg-slate-900/50">
+      <Card className="mt-8 bg-black/40 backdrop-blur-md">
         <h3 className="text-paper font-display font-semibold mb-3">How it works</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-slate-400">
           <div className="flex items-start gap-3">
-            <span className="text-accent font-display font-bold text-lg">1</span>
+            <span className="text-emerald-500 font-display font-bold text-lg">1</span>
             <div>
-              <p className="text-paper text-xs font-medium">Upload</p>
+              <p className="text-white text-xs font-medium">Upload</p>
               <p className="text-xs mt-1">Upload a PDF (syllabus, notice) or image (screenshot of WhatsApp/email)</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
-            <span className="text-accent font-display font-bold text-lg">2</span>
+            <span className="text-emerald-500 font-display font-bold text-lg">2</span>
             <div>
-              <p className="text-paper text-xs font-medium">Extract</p>
+              <p className="text-white text-xs font-medium">Extract</p>
               <p className="text-xs mt-1">spaCy NLP + Tesseract OCR extract subject, type, and deadline from text</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
-            <span className="text-accent font-display font-bold text-lg">3</span>
+            <span className="text-emerald-500 font-display font-bold text-lg">3</span>
             <div>
-              <p className="text-paper text-xs font-medium">Auto-create</p>
+              <p className="text-white text-xs font-medium">Auto-create</p>
               <p className="text-xs mt-1">Extracted items are saved to your Assignments list automatically</p>
             </div>
           </div>

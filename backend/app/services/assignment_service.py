@@ -10,13 +10,6 @@ from app.schemas.schemas import AssignmentCreate, AssignmentUpdate
 from app.services.time_estimator import estimate_assignment_time
 
 async def create_assignment(user_id: UUID, data: AssignmentCreate, db: AsyncSession) -> Assignment:
-    # Auto-estimate time from title + description
-    text_for_estimation = f"{data.title or ''} {data.description or ''}".strip()
-    time_estimate = await estimate_assignment_time(
-        text=text_for_estimation,
-        task_type=data.task_type,
-    )
-
     assignment = Assignment(
         user_id=user_id,
         title=data.title,
@@ -26,7 +19,7 @@ async def create_assignment(user_id: UUID, data: AssignmentCreate, db: AsyncSess
         priority=data.priority,
         status=AssignmentStatus.pending,
         description=data.description,
-        ai_metadata={"time_estimate": time_estimate},
+        ai_metadata={},
     )
     db.add(assignment)
     await db.flush()
@@ -89,26 +82,8 @@ async def delete_assignment(user_id: UUID, assignment_id: UUID, db: AsyncSession
 
 
 async def bulk_estimate_assignments(user_id: UUID, db: AsyncSession) -> dict:
-    """Re-run time estimation for all assignments that are missing it."""
-    result = await db.execute(select(Assignment).where(Assignment.user_id == user_id))
-    assignments = list(result.scalars().all())
-
-    updated = 0
-    for assignment in assignments:
-        meta = assignment.ai_metadata or {}
-        if meta.get("time_estimate"):
-            continue  # already estimated
-        text = f"{assignment.title or ''} {assignment.description or ''}".strip()
-        time_estimate = await estimate_assignment_time(
-            text=text,
-            task_type=assignment.task_type,
-        )
-        assignment.ai_metadata = {**meta, "time_estimate": time_estimate}
-        updated += 1
-
-    if updated:
-        await db.flush()
-    return {"updated": updated, "total": len(assignments)}
+    """Disabled — too slow for large assignment counts. Use per-assignment estimate instead."""
+    return {"updated": 0, "total": 0, "message": "Bulk estimation disabled. Use per-assignment estimate button."}
 
 
 async def get_upcoming_assignments(user_id: UUID, db: AsyncSession, days: int = 7) -> list[Assignment]:
@@ -191,3 +166,118 @@ async def create_assignment_from_document(user_id: UUID, document_id: UUID, db: 
     await db.flush()
     await db.refresh(assignment)
     return assignment
+
+
+async def sync_classroom_assignments(
+    user_id: UUID, events: list[dict], db: AsyncSession
+) -> dict:
+    """
+    Upsert Google Classroom events into the assignments table.
+
+    - Matches on (user_id, classroom_id) to avoid duplicates.
+    - Creates new Assignment rows for unseen events.
+    - Updates existing rows when classroom data changes.
+    """
+    from datetime import date as date_type
+    import logging
+
+    log = logging.getLogger(__name__)
+    created = 0
+    updated = 0
+
+    for event in events:
+        # Only sync actual assignments, not announcements
+        if event.get("type") != "Assignment":
+            continue
+
+        classroom_id = event.get("classroom_id")
+        if not classroom_id:
+            continue
+
+        # Check if already synced
+        result = await db.execute(
+            select(Assignment).where(
+                and_(
+                    Assignment.user_id == user_id,
+                    Assignment.classroom_id == str(classroom_id),
+                )
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        # Map classroom workflow status → assignment status
+        workflow = event.get("workflow_status", "")
+        sub_status = event.get("submission_status", "assigned")
+        if workflow == "graded" or sub_status == "submitted":
+            status_val = AssignmentStatus.completed.value
+        else:
+            status_val = AssignmentStatus.pending.value
+
+        # Parse deadline
+        deadline = None
+        if event.get("due_date"):
+            try:
+                deadline = date_type.fromisoformat(event["due_date"])
+            except (ValueError, TypeError):
+                pass
+
+        # Build a human-readable classroom status label
+        if workflow == "graded":
+            classroom_label = "graded"
+        elif sub_status == "submitted":
+            classroom_label = "submitted"
+        elif sub_status == "missing":
+            classroom_label = "missing"
+        elif deadline:
+            classroom_label = "assigned"
+        else:
+            classroom_label = "no due date"
+
+        # Classroom-specific metadata stored in ai_metadata
+        classroom_meta = {
+            "source": "google_classroom",
+            "course": event.get("course"),
+            "submission_status": sub_status,
+            "workflow_status": workflow,
+            "classroom_label": classroom_label,
+            "link": event.get("link"),
+            "is_graded": event.get("is_graded", False),
+            "assigned_grade": event.get("assigned_grade"),
+            "has_due_date": deadline is not None,
+        }
+
+        if existing:
+            # Update existing synced assignment
+            existing.title = event.get("title") or existing.title
+            existing.deadline = deadline or existing.deadline
+            existing.subject = event.get("course") or existing.subject
+            existing.status = status_val
+            meta = existing.ai_metadata or {}
+            meta["classroom"] = classroom_meta
+            existing.ai_metadata = meta
+            updated += 1
+        else:
+            # Create new assignment from classroom event
+            new_assignment = Assignment(
+                user_id=user_id,
+                title=event.get("title") or "Untitled",
+                subject=event.get("course"),
+                task_type=TaskType.assignment.value,
+                description=event.get("description"),
+                deadline=deadline,
+                priority=Priority.medium.value,
+                status=status_val,
+                classroom_id=str(classroom_id),
+                ai_metadata={"classroom": classroom_meta},
+            )
+            db.add(new_assignment)
+            created += 1
+
+    if created or updated:
+        await db.flush()
+
+    log.info(
+        "Classroom sync for user %s: %d created, %d updated",
+        user_id, created, updated,
+    )
+    return {"created": created, "updated": updated}

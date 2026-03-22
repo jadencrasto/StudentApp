@@ -176,7 +176,7 @@ async def project_attendance(
                 "projected_percentage": projected_pct,
                 "safe": projected_pct >= 75.0,
             }
-    return {}
+    raise HTTPException(status_code=404, detail="Subject not found")
 
 async def get_attendance_history(user_id: UUID, subject_id: UUID, db: AsyncSession) -> list[AttendanceRecord]:
     result = await db.execute(
@@ -380,7 +380,9 @@ def calculate_safe_absences(
         return 0
     target_decimal = threshold / 100
     projected_total = total_classes + remaining_classes
-    min_present_needed = int(projected_total * target_decimal) + 1
+    min_present_needed = int(projected_total * target_decimal)
+    if (min_present_needed / projected_total) < target_decimal:
+        min_present_needed += 1
     max_present_possible = present_count + remaining_classes
     return max(0, max_present_possible - min_present_needed)
 
@@ -396,7 +398,7 @@ async def get_recovery_plan(
     summaries = await get_attendance_summary(user_id, db)
     summary = next((s for s in summaries if str(s.subject_id) == str(subject_id)), None)
     if not summary:
-        return {'error': 'Subject not found'}
+        raise HTTPException(status_code=404, detail="Subject not found")
 
     scenarios = []
     for target, label in [(75, 'Minimum Safe'), (80, 'Safe Zone'), (85, 'Comfort Zone')]:

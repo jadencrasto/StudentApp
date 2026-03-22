@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Integer, Date, DateTime, ForeignKey, Enum, Text, UniqueConstraint, Uuid
+from sqlalchemy import String, Integer, Date, DateTime, ForeignKey, Enum, Text, UniqueConstraint, Uuid, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 import enum
@@ -38,6 +38,8 @@ class AttendanceRecord(Base):
     class_date:   Mapped[date]              = mapped_column(Date, nullable=False, index=True)
     status:       Mapped[AttendanceStatus]  = mapped_column(Enum(AttendanceStatus, name="attendancestatus", native_enum=True), nullable=False)
     notes:        Mapped[str | None]        = mapped_column(String(500))
+    notification_sent: Mapped[bool]         = mapped_column(Boolean, default=False)
+    notification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at:   Mapped[datetime]          = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (

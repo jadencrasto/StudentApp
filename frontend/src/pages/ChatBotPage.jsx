@@ -6,6 +6,7 @@
  *   • Viva — AI generates questions on uploaded documents and evaluates answers
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   createConversation, listConversations, getConversation,
   deleteConversation, sendMessage, startViva,
@@ -50,15 +51,15 @@ function renderMarkdown(text) {
     .replace(/\*\*(.+?)\*\*/g, '<strong class="text-slate-100">$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     // Headings
-    .replace(/^### (.+)$/gm, '<h3 class="font-semibold text-amber-400 mt-3 mb-1 text-sm">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="font-semibold text-amber-400 mt-3 mb-1 text-base">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="font-bold text-amber-400 mt-4 mb-1.5 text-lg">$1</h1>')
+    .replace(/^### (.+)$/gm, '<h3 class="font-semibold text-emerald-400 mt-3 mb-1 text-sm">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 class="font-semibold text-emerald-400 mt-3 mb-1 text-base">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 class="font-bold text-emerald-400 mt-4 mb-1.5 text-lg">$1</h1>')
     // Bullet lists
-    .replace(/^[-•]\s+(.+)$/gm, '<div class="flex gap-2 ml-2 my-0.5"><span class="text-amber-400/60 select-none">•</span><span>$1</span></div>')
+    .replace(/^[-•]\s+(.+)$/gm, '<div class="flex gap-2 ml-2 my-0.5"><span class="text-emerald-400/60 select-none">•</span><span>$1</span></div>')
     // Numbered lists
-    .replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex gap-2 ml-2 my-0.5"><span class="text-amber-400/60 font-mono text-xs min-w-[1.2em] select-none">$1.</span><span>$2</span></div>')
+    .replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex gap-2 ml-2 my-0.5"><span class="text-emerald-400/60 font-mono text-xs min-w-[1.2em] select-none">$1.</span><span>$2</span></div>')
     // Horizontal rule
-    .replace(/^---+$/gm, '<hr class="border-slate-700 my-3"/>')
+    .replace(/^---+$/gm, '<hr class="border-white/10 my-3"/>')
     // Line breaks
     .replace(/\n{2,}/g, '<div class="h-3"></div>')
     .replace(/\n/g, '<br/>')
@@ -69,7 +70,7 @@ function renderMarkdown(text) {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-    return `<code class="bg-slate-700/80 text-amber-300 px-1.5 py-0.5 rounded text-xs font-mono">${code}</code>`
+    return `<code class="bg-black/40 text-emerald-300 px-1.5 py-0.5 rounded text-xs font-mono border border-white/5">${code}</code>`
   })
 
   // 6. Restore fenced code blocks with styling
@@ -81,7 +82,7 @@ function renderMarkdown(text) {
       .replace(/>/g, '&gt;')
       .trim()
     const langLabel = lang ? `<div class="text-[10px] text-slate-500 font-mono mb-1 select-none">${lang}</div>` : ''
-    return `<div class="bg-slate-900/80 border border-slate-700/50 rounded-lg p-3 my-2 overflow-x-auto">${langLabel}<pre class="text-xs font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">${escaped}</pre></div>`
+    return `<div class="bg-black/80 border border-white/10 rounded-lg p-3 my-2 overflow-x-auto">${langLabel}<pre class="text-xs font-mono text-gray-300 whitespace-pre-wrap leading-relaxed">${escaped}</pre></div>`
   })
 
   return processed
@@ -92,22 +93,32 @@ function renderMarkdown(text) {
 function ChatBubble({ role, content }) {
   const isUser = role === 'user'
   return (
-    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+    <motion.div
+      initial={{ opacity: 0, y: 8, x: isUser ? 12 : -12 }}
+      animate={{ opacity: 1, y: 0, x: 0 }}
+      transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+      className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
+    >
       {/* Avatar */}
-      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-        isUser ? 'bg-amber-400 text-slate-900' : 'bg-slate-700 text-amber-400'
-      }`}>
+      <motion.div
+        initial={{ scale: 0.5 }}
+        animate={{ scale: 1 }}
+        transition={{ delay: 0.1, type: 'spring', stiffness: 400 }}
+        className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+          isUser ? 'bg-emerald-500 text-black' : 'bg-white/5 text-emerald-400'
+        }`}
+      >
         {isUser ? <User size={15} /> : <Bot size={15} />}
-      </div>
+      </motion.div>
       {/* Message */}
       <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-        isUser
-          ? 'bg-amber-400/10 border border-amber-400/20 text-slate-200'
-          : 'bg-slate-800 border border-slate-700 text-slate-300'
+          isUser
+            ? 'bg-emerald-500/10 border border-emerald-500/20 text-slate-200'
+            : 'bg-white/[0.02] border border-white/5 text-slate-300'
       }`}>
         <div dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
       </div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -119,7 +130,7 @@ function ConversationList({ conversations, activeId, onSelect, onDelete, onCreat
       {/* New chat button */}
       <button
         onClick={onCreate}
-        className="flex items-center gap-2 mx-3 mt-3 mb-2 px-3 py-2.5 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-400 text-sm font-medium hover:bg-amber-400/20 transition-all"
+        className="flex items-center gap-2 mx-3 mt-3 mb-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium hover:bg-emerald-500/20 transition-all"
       >
         <Plus size={15} /> New Chat
       </button>
@@ -131,8 +142,8 @@ function ConversationList({ conversations, activeId, onSelect, onDelete, onCreat
             key={c.id}
             className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm ${
               c.id === activeId
-                ? 'bg-slate-700 text-white'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                ? 'bg-white/10 text-white'
+                : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
             }`}
             onClick={() => onSelect(c.id)}
           >
@@ -165,7 +176,7 @@ function VivaModal({ open, onClose, onStart }) {
   useEffect(() => {
     if (open) {
       documentsAPI.list()
-        .then(setDocs)
+        .then(r => setDocs(Array.isArray(r.data) ? r.data : []))
         .catch(() => toast.error('Failed to load documents'))
     }
   }, [open])
@@ -190,10 +201,10 @@ function VivaModal({ open, onClose, onStart }) {
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-xl">
-        <div className="px-5 py-4 border-b border-slate-800">
+      <div className="bg-black/90 border border-white/10 rounded-2xl w-full max-w-md shadow-xl backdrop-blur-md">
+        <div className="px-5 py-4 border-b border-white/10">
           <h2 className="text-white font-semibold flex items-center gap-2">
-            <GraduationCap size={18} className="text-amber-400" />
+            <GraduationCap size={18} className="text-emerald-400" />
             Start Viva Session
           </h2>
           <p className="text-slate-500 text-xs mt-1">
@@ -208,7 +219,7 @@ function VivaModal({ open, onClose, onStart }) {
               <select
                 value={selectedDoc}
                 onChange={(e) => setSelectedDoc(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:border-amber-400 focus:outline-none appearance-none"
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:border-emerald-500 focus:outline-none appearance-none"
               >
                 <option value="">Choose a document…</option>
                 {docs.filter(d => d.extraction_status === 'done').map((d) => (
@@ -224,25 +235,25 @@ function VivaModal({ open, onClose, onStart }) {
           {/* Number of questions */}
           <div>
             <label className="text-slate-400 text-xs font-medium block mb-1">
-              Number of Questions: <span className="text-amber-400">{numQ}</span>
+              Number of Questions: <span className="text-emerald-400">{numQ}</span>
             </label>
             <input
               type="range"
               min={1} max={15} value={numQ}
               onChange={(e) => setNumQ(+e.target.value)}
-              className="w-full accent-amber-400"
+              className="w-full accent-emerald-500"
             />
           </div>
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">
-            <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl text-sm text-slate-400 bg-slate-800 hover:bg-slate-700 transition-colors">
+            <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl text-sm text-slate-400 border border-white/10 bg-white/5 hover:bg-white/10 transition-colors">
               Cancel
             </button>
             <button
               onClick={handleStart}
               disabled={loading || !selectedDoc}
-              className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-amber-400 text-slate-900 hover:bg-amber-300 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-emerald-500 text-black hover:bg-emerald-600 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
               {loading ? 'Generating…' : 'Start Viva'}
@@ -399,19 +410,19 @@ export default function ChatBotPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 size={32} className="animate-spin text-amber-400" />
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 size={32} className="animate-spin text-emerald-500" />
       </div>
     )
   }
 
   return (
-    <div className="flex h-[calc(100vh-2rem)] gap-0 -m-2">
+    <div className="flex h-screen p-6 gap-0">
       {/* ── Sidebar ── */}
-      <div className="w-64 bg-slate-900 border-r border-slate-800 rounded-l-2xl flex flex-col">
-        <div className="px-4 py-3 border-b border-slate-800">
+      <div className="w-64 bg-white/[0.02] border border-white/10 rounded-l-2xl flex flex-col backdrop-blur-md">
+        <div className="px-4 py-3 border-b border-white/10">
           <h2 className="text-white font-semibold text-sm flex items-center gap-2">
-            <Bot size={16} className="text-amber-400" />
+            <Bot size={16} className="text-emerald-500" />
             SAIS Chatbot
           </h2>
         </div>
@@ -426,7 +437,7 @@ export default function ChatBotPage() {
         <div className="px-3 pb-3">
           <button
             onClick={() => setVivaOpen(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium bg-gradient-to-r from-purple-500/20 to-amber-400/20 border border-purple-400/20 text-purple-300 hover:text-amber-300 hover:border-amber-400/30 transition-all"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium bg-gradient-to-r from-blue-500/20 to-emerald-500/20 border border-white/10 text-emerald-300 hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
           >
             <GraduationCap size={15} />
             Start Viva
@@ -435,13 +446,13 @@ export default function ChatBotPage() {
       </div>
 
       {/* ── Main chat area ── */}
-      <div className="flex-1 flex flex-col bg-slate-950 rounded-r-2xl">
+      <div className="flex-1 flex flex-col bg-black rounded-r-2xl border-y border-r border-white/10">
         {/* Header */}
-        <div className="px-6 py-3 border-b border-slate-800 flex items-center gap-3">
+        <div className="px-6 py-3 border-b border-white/10 flex items-center gap-3">
           {activeMode === 'viva' ? (
-            <GraduationCap size={18} className="text-purple-400" />
+            <GraduationCap size={18} className="text-emerald-400" />
           ) : (
-            <Sparkles size={18} className="text-amber-400" />
+            <Sparkles size={18} className="text-emerald-500" />
           )}
           <h3 className="text-white text-sm font-medium">
             {activeConvId
@@ -449,7 +460,7 @@ export default function ChatBotPage() {
               : 'Start a conversation'}
           </h3>
           {activeMode === 'viva' && (
-            <span className="text-xs bg-purple-400/10 text-purple-400 px-2 py-0.5 rounded-lg">Viva Mode</span>
+            <span className="text-xs bg-emerald-400/10 text-emerald-400 px-2 py-0.5 rounded-lg border border-emerald-400/20">Viva Mode</span>
           )}
         </div>
 
@@ -457,12 +468,12 @@ export default function ChatBotPage() {
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {messages.length === 0 && !activeConvId && (
             <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-4">
-                <Bot size={28} className="text-amber-400" />
+              <div className="w-16 h-16 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center mb-4">
+                <Bot size={28} className="text-emerald-500" />
               </div>
               <h3 className="text-white font-semibold text-lg mb-2">SAIS Study Assistant</h3>
-              <p className="text-slate-500 text-sm max-w-md mb-6">
-                Ask any academic question, or start a <strong className="text-purple-400">Viva session</strong> to
+              <p className="text-slate-400 text-sm max-w-md mb-6">
+                Ask any academic question, or start a <strong className="text-emerald-400">Viva session</strong> to
                 test your knowledge on uploaded documents.
               </p>
               <div className="grid grid-cols-2 gap-3 max-w-sm w-full">
@@ -478,9 +489,9 @@ export default function ChatBotPage() {
                       if (i === 3) { setVivaOpen(true); return }
                       handleNew()
                     }}
-                    className="text-left px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-amber-400/30 hover:bg-slate-800 transition-all group"
+                    className="text-left px-4 py-3 rounded-xl bg-white/[0.02] border border-white/5 hover:border-emerald-500/30 hover:bg-white/5 transition-all group"
                   >
-                    <Icon size={16} className="text-slate-500 group-hover:text-amber-400 mb-1.5 transition-colors" />
+                    <Icon size={16} className="text-slate-500 group-hover:text-emerald-500 mb-1.5 transition-colors" />
                     <p className="text-slate-300 text-xs font-medium">{label}</p>
                     <p className="text-slate-600 text-[10px] mt-0.5">{hint}</p>
                   </button>
@@ -499,10 +510,10 @@ export default function ChatBotPage() {
           ))}
           {sending && (
             <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
-                <Bot size={15} className="text-amber-400" />
+              <div className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+                <Bot size={15} className="text-emerald-500" />
               </div>
-              <div className="bg-slate-800 border border-slate-700 rounded-2xl px-4 py-3">
+              <div className="bg-white/[0.02] border border-white/5 rounded-2xl px-4 py-3">
                 <div className="flex items-center gap-2 text-slate-500 text-sm">
                   <Loader2 size={14} className="animate-spin" />
                   Thinking…
@@ -514,7 +525,7 @@ export default function ChatBotPage() {
         </div>
 
         {/* Input */}
-        <div className="px-6 py-4 border-t border-slate-800">
+        <div className="px-6 py-4 border-t border-white/10">
           <div className="flex items-end gap-3">
             <textarea
               ref={inputRef}
@@ -523,14 +534,14 @@ export default function ChatBotPage() {
               onKeyDown={handleKeyDown}
               placeholder={activeMode === 'viva' ? 'Type your answer…' : 'Ask anything…'}
               rows={1}
-              className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30 transition-colors"
+              className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-colors"
               style={{ minHeight: '44px', maxHeight: '120px' }}
               onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px' }}
             />
             <button
               onClick={handleSend}
               disabled={sending || !input.trim()}
-              className="h-11 w-11 rounded-xl bg-amber-400 text-slate-900 flex items-center justify-center hover:bg-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="h-11 w-11 rounded-xl bg-emerald-500 text-black flex items-center justify-center hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               <Send size={16} />
             </button>

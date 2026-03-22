@@ -3,6 +3,7 @@
  * Upload PDF / DOCX / images → AI extracts info → time estimate sidebar
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { documentsAPI } from '../lib/api'
 import client from '../api/client'
 import { format } from 'date-fns'
@@ -54,7 +55,7 @@ function TimeBar({ minutes, max }) {
   return (
     <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mt-1">
       <div
-        className="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-full transition-all duration-500"
+        className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-500"
         style={{ width: `${pct}%` }}
       />
     </div>
@@ -72,13 +73,13 @@ function DocCard({ doc, onSave, onReprocess, onRemove, savedIds, maxMinutes }) {
   const isProcessing = doc.extraction_status === 'processing' || doc.extraction_status === 'pending'
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden transition-all">
+    <div className="bg-white/[0.02] border border-white/10 rounded-2xl overflow-hidden transition-all hover:border-emerald-500/20">
       {/* Header */}
       <button
-        className="w-full flex items-center gap-4 px-5 py-4 hover:bg-slate-800/30 transition-all text-left"
+        className="w-full flex items-center gap-4 px-5 py-4 hover:bg-white/5 transition-all text-left"
         onClick={() => setExpanded(e => !e)}
       >
-        <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center flex-shrink-0">
+        <div className="w-10 h-10 bg-black/40 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/10">
           {FILE_ICON[doc.file_type] || FILE_ICON.txt}
         </div>
 
@@ -91,7 +92,7 @@ function DocCard({ doc, onSave, onReprocess, onRemove, savedIds, maxMinutes }) {
 
         <div className="flex items-center gap-3 flex-shrink-0">
           {te && (
-            <div className="hidden sm:flex items-center gap-1.5 text-amber-400 text-sm font-bold">
+            <div className="hidden sm:flex items-center gap-1.5 text-emerald-400 text-sm font-bold">
               <Clock size={13} />
               {te.estimated_hours}h
             </div>
@@ -103,7 +104,7 @@ function DocCard({ doc, onSave, onReprocess, onRemove, savedIds, maxMinutes }) {
 
       {/* Body */}
       {expanded && (
-        <div className="px-5 pb-5 border-t border-slate-800/60">
+        <div className="px-5 pb-5 border-t border-white/10">
           {isProcessing && (
             <div className="mt-4 flex items-center gap-2 text-blue-400 text-xs bg-blue-400/5 rounded-lg px-3 py-2.5">
               <RefreshCw size={12} className="animate-spin" />
@@ -133,7 +134,7 @@ function DocCard({ doc, onSave, onReprocess, onRemove, savedIds, maxMinutes }) {
                   { label: 'Deadline',  value: (() => { try { return ext.deadline ? format(new Date(ext.deadline), 'MMM d, yyyy') : null } catch { return ext.deadline || null } })() },
                   { label: 'Confidence',value: conf > 0 ? `${conf}%` : null },
                 ].map(({ label, value }) => (
-                  <div key={label} className="bg-slate-800 rounded-xl px-3 py-2.5">
+                  <div key={label} className="bg-black/40 border border-white/5 rounded-xl px-3 py-2.5">
                     <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">{label}</p>
                     <p className={`text-sm font-medium ${value ? 'text-slate-200' : 'text-slate-600 italic'}`}>
                       {value || '—'}
@@ -144,14 +145,14 @@ function DocCard({ doc, onSave, onReprocess, onRemove, savedIds, maxMinutes }) {
 
               {/* Time estimate */}
               {te && (
-                <div className="bg-slate-800/60 rounded-xl p-4">
+                <div className="bg-black/30 border border-white/5 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <Clock size={15} className="text-amber-400" />
+                      <Clock size={15} className="text-emerald-400" />
                       <span className="text-sm font-semibold text-white">Time Estimate</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-2xl font-bold text-amber-400">{te.estimated_hours}</span>
+                      <span className="text-2xl font-bold text-emerald-400">{te.estimated_hours}</span>
                       <span className="text-sm text-slate-500">hours</span>
                       <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${COMPLEXITY_COLOR[te.complexity] || COMPLEXITY_COLOR.medium}`}>
                         {te.complexity}
@@ -168,7 +169,7 @@ function DocCard({ doc, onSave, onReprocess, onRemove, savedIds, maxMinutes }) {
                     </div>
                     <div className="text-center">
                       <p className="text-[10px] text-slate-500 uppercase tracking-wider">Work</p>
-                      <p className="text-xs font-semibold text-amber-400 mt-0.5">{te.work_time_minutes}m</p>
+                      <p className="text-xs font-semibold text-emerald-400 mt-0.5">{te.work_time_minutes}m</p>
                     </div>
                     <div className="text-center">
                       <p className="text-[10px] text-slate-500 uppercase tracking-wider">Confidence</p>
@@ -204,7 +205,7 @@ function DocCard({ doc, onSave, onReprocess, onRemove, savedIds, maxMinutes }) {
                 ) : (
                   <button
                     onClick={() => onSave(doc.id)}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-amber-400 text-slate-900 font-semibold rounded-xl hover:bg-amber-300 transition-all text-sm"
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-500 text-black font-semibold rounded-xl hover:bg-emerald-600 transition-all text-sm"
                   >
                     Save as Assignment <ArrowRight size={14} />
                   </button>
@@ -212,7 +213,7 @@ function DocCard({ doc, onSave, onReprocess, onRemove, savedIds, maxMinutes }) {
                 <button
                   onClick={() => onRemove(doc.id)}
                   title="Remove from list"
-                  className="p-2.5 text-slate-600 hover:text-red-400 border border-slate-800 rounded-xl transition-all"
+                  className="p-2.5 text-slate-500 hover:text-red-400 border border-white/10 rounded-xl transition-all"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -331,20 +332,28 @@ export default function UploadPage() {
   return (
     <div className="p-6 lg:p-8">
       {/* Header */}
-      <div className="mb-6">
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="mb-6"
+      >
         <h1 className="font-display text-3xl text-white">Assignment Files</h1>
         <p className="text-slate-400 text-sm mt-1">
           Upload PDF, DOCX, or images — AI extracts info and estimates completion time
         </p>
-      </div>
+      </motion.div>
 
       <div className="lg:grid lg:grid-cols-[1fr_300px] gap-6 items-start">
         {/* ── LEFT: drop zone + doc list ── */}
         <div className="space-y-5">
           {/* Drop zone */}
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
             className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer
-              ${dragging ? 'border-amber-400 bg-amber-400/5' : 'border-slate-700 bg-slate-900 hover:border-slate-600'}`}
+              ${dragging ? 'border-emerald-500 bg-emerald-500/5' : 'border-white/10 bg-white/[0.02] hover:border-emerald-500/30'}`}
             onDragOver={e => { e.preventDefault(); setDragging(true) }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
@@ -358,15 +367,15 @@ export default function UploadPage() {
               accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt"
               onChange={e => { uploadFiles(e.target.files); e.target.value = '' }}
             />
-            <Upload size={36} className={`mx-auto mb-3 ${dragging ? 'text-amber-400' : 'text-slate-600'}`} />
+            <Upload size={36} className={`mx-auto mb-3 ${dragging ? 'text-emerald-500' : 'text-slate-600'}`} />
             {uploading
-              ? <p className="text-amber-400 font-medium text-sm animate-pulse">Uploading…</p>
+              ? <p className="text-emerald-500 font-medium text-sm animate-pulse">Uploading…</p>
               : <>
                   <p className="text-slate-300 font-medium">Drop files here or click to browse</p>
                   <p className="text-slate-500 text-xs mt-1">PDF · DOC · DOCX · PNG · JPG · TXT — multiple files supported</p>
                 </>
             }
-          </div>
+          </motion.div>
 
           {/* Processing banner */}
           {processingCount > 0 && (
@@ -380,7 +389,7 @@ export default function UploadPage() {
           {loadingExisting && (
             <div className="space-y-3">
               {[1, 2].map(i => (
-                <div key={i} className="h-20 bg-slate-900 border border-slate-800 rounded-2xl animate-pulse" />
+                <div key={i} className="h-20 bg-white/[0.02] border border-white/10 rounded-2xl animate-pulse" />
               ))}
             </div>
           )}
@@ -394,25 +403,34 @@ export default function UploadPage() {
           )}
 
           {/* Doc cards */}
-          {docs.map(doc => (
-            <DocCard
+          <AnimatePresence>
+          {docs.map((doc, i) => (
+            <motion.div
               key={doc.id}
-              doc={doc}
-              onSave={handleSave}
-              onReprocess={handleReprocess}
-              onRemove={handleRemove}
-              savedIds={savedIds}
-              maxMinutes={maxMinutes}
-            />
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.35, delay: i * 0.05 }}
+            >
+              <DocCard
+                doc={doc}
+                onSave={handleSave}
+                onReprocess={handleReprocess}
+                onRemove={handleRemove}
+                savedIds={savedIds}
+                maxMinutes={maxMinutes}
+              />
+            </motion.div>
           ))}
+          </AnimatePresence>
         </div>
 
         {/* ── RIGHT: sticky sidebar ── */}
         <div className="mt-6 lg:mt-0 space-y-4 lg:sticky lg:top-6">
           {/* Total workload card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-4">
-              <Clock size={16} className="text-amber-400" />
+              <Clock size={16} className="text-emerald-500" />
               <h3 className="text-sm font-semibold text-white">Total Workload</h3>
             </div>
 
@@ -423,7 +441,7 @@ export default function UploadPage() {
             ) : (
               <>
                 <div className="text-center mb-4">
-                  <p className="text-4xl font-bold text-amber-400">{totalHours}</p>
+                  <p className="text-4xl font-bold text-emerald-500">{totalHours}</p>
                   <p className="text-xs text-slate-500 mt-0.5">hours total</p>
                   <p className="text-[10px] text-slate-600 mt-1">{totalMinutes} min across {withEstimate.length} file{withEstimate.length !== 1 ? 's' : ''}</p>
                 </div>
@@ -438,11 +456,11 @@ export default function UploadPage() {
                           <p className="text-xs text-slate-400 truncate max-w-[160px]">
                             {doc.extracted_data?.title || doc.original_filename}
                           </p>
-                          <p className="text-xs font-bold text-amber-400 flex-shrink-0 ml-2">{te.estimated_hours}h</p>
+                          <p className="text-xs font-bold text-emerald-400 flex-shrink-0 ml-2">{te.estimated_hours}h</p>
                         </div>
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-full"
+                            className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -452,7 +470,7 @@ export default function UploadPage() {
                 </div>
 
                 {/* Workload breakdown */}
-                <div className="mt-4 grid grid-cols-3 gap-2 pt-4 border-t border-slate-800">
+                <div className="mt-4 grid grid-cols-3 gap-2 pt-4 border-t border-white/10">
                   {[
                     {
                       label: 'Reading',
@@ -462,12 +480,12 @@ export default function UploadPage() {
                     {
                       label: 'Work',
                       val: withEstimate.reduce((s, d) => s + (d.extracted_data.time_estimate.work_time_minutes || 0), 0),
-                      cls: 'text-amber-400',
+                      cls: 'text-emerald-400',
                     },
                     {
                       label: 'Questions',
                       val: withEstimate.reduce((s, d) => s + (d.extracted_data.time_estimate.question_count || 0), 0),
-                      cls: 'text-emerald-400',
+                      cls: 'text-blue-400',
                       suffix: '',
                     },
                   ].map(({ label, val, cls, suffix }) => (
@@ -495,23 +513,30 @@ export default function UploadPage() {
           </div>
 
           {/* Save all CTA */}
+          <AnimatePresence>
           {unsavedCount > 0 && (
-            <button
+            <motion.button
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              whileHover={{ scale: 1.03, boxShadow: '0 0 20px rgba(16,185,129,0.3)' }}
+              whileTap={{ scale: 0.97 }}
               onClick={handleSaveAll}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-amber-400 text-slate-900 font-bold rounded-xl hover:bg-amber-300 transition-all text-sm"
+              className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 text-black font-bold rounded-xl hover:bg-emerald-600 transition-all text-sm"
             >
               <BookOpen size={15} />
               Save {unsavedCount} assignment{unsavedCount !== 1 ? 's' : ''} to Planner
-            </button>
+            </motion.button>
           )}
+          </AnimatePresence>
 
           {/* Tips */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+          <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-4">
             <p className="text-xs font-semibold text-slate-400 mb-2">What gets extracted</p>
             <ul className="space-y-1.5 text-xs text-slate-500">
               {['Subject & task type', 'Deadline dates', 'Number of questions', 'Math / code content', 'Time estimate with breakdown'].map(t => (
                 <li key={t} className="flex items-center gap-2">
-                  <div className="w-1 h-1 bg-amber-400 rounded-full flex-shrink-0" />
+                  <div className="w-1 h-1 bg-emerald-500 rounded-full flex-shrink-0" />
                   {t}
                 </li>
               ))}

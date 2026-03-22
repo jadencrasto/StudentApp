@@ -2,6 +2,7 @@ import axios from 'axios';
 
 const client = axios.create({
   baseURL: 'http://127.0.0.1:8000/api/v1',
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -21,10 +22,15 @@ client.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token expired or invalid - logout
-      localStorage.removeItem('sais_token');
-      localStorage.removeItem('sais_user');
-      window.location.href = '/login';
+      // Only redirect to login for actual SAIS auth failures,
+      // not for third-party credential issues (e.g. Google OAuth)
+      const url = error.config?.url || '';
+      const isClassroomRoute = url.includes('/classroom/');
+      if (!isClassroomRoute) {
+        localStorage.removeItem('sais_token');
+        localStorage.removeItem('sais_user');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

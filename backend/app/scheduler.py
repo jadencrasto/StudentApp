@@ -47,10 +47,10 @@ async def _mark_overdue_job():
             .where(
                 and_(
                     Assignment.deadline < today,
-                    Assignment.status == AssignmentStatus.pending,
+                    Assignment.status == AssignmentStatus.pending.value,
                 )
             )
-            .values(status=AssignmentStatus.overdue)
+            .values(status=AssignmentStatus.overdue.value)
         )
         await db.commit()
         logger.info("Overdue job complete")

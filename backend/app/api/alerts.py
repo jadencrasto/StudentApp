@@ -10,7 +10,7 @@ from app.services import alert_service
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 
-@router.get("/", response_model=list[AlertOut])
+@router.get("", response_model=list[AlertOut])
 async def list_alerts(
     unread_only: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),

@@ -20,7 +20,10 @@ from app.schemas.schemas import (
 )
 from app.services import timetable_service
 
+import logging
+
 router = APIRouter(prefix="/timetable", tags=["Timetable"])
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf"}
 
@@ -46,13 +49,20 @@ async def upload_timetable(
     async with aiofiles.open(file_path, "wb") as out:
         await out.write(file_bytes)
 
-    result = await timetable_service.process_timetable_upload(
-        user_id=current_user.id,
-        file_name=filename,
-        file_path=file_path,
-        file_type=ext,
-        db=db,
-    )
+    try:
+        result = await timetable_service.process_timetable_upload(
+            user_id=current_user.id,
+            file_name=filename,
+            file_path=file_path,
+            file_type=ext,
+            db=db,
+        )
+    except Exception as e:
+        logger.exception("Timetable extraction failed for %s", filename)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Timetable extraction failed: {str(e)}"
+        )
     return result
 
 

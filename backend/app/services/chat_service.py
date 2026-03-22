@@ -97,7 +97,10 @@ class ChatService:
     ) -> ChatConversation | None:
         result = await db.execute(
             select(ChatConversation)
-            .options(selectinload(ChatConversation.messages))
+            .options(
+                selectinload(ChatConversation.messages),
+                selectinload(ChatConversation.document),
+            )
             .where(
                 ChatConversation.id == conversation_id,
                 ChatConversation.user_id == user_id,
@@ -179,10 +182,16 @@ class ChatService:
         num_questions: int = 5,
     ) -> ChatConversation:
         """Create a viva conversation and generate initial questions."""
-        # Fetch document content
-        doc = await db.get(Document, document_id)
+        # Fetch document content (verify ownership)
+        result = await db.execute(
+            select(Document).where(
+                Document.id == document_id,
+                Document.user_id == user_id,
+            )
+        )
+        doc = result.scalar_one_or_none()
         if not doc:
-            raise ValueError("Document not found")
+            raise ValueError("Document not found or you don't have access")
 
         content = doc.raw_text or ""
         if not content:

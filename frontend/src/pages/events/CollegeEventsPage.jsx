@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 
@@ -103,14 +104,16 @@ export default function CollegeEventsPage() {
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="font-display text-3xl text-white mb-2">College Academic Events</h1>
-      <p className="text-slate-400 mb-6">Select a college and fetch latest notices/exam/calendar events.</p>
+      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+        <h1 className="font-display text-3xl text-white mb-2">College Academic Events</h1>
+        <p className="text-slate-400 mb-6">Select a college and fetch latest notices/exam/calendar events.</p>
+      </motion.div>
 
       <div className="flex gap-3 mb-6">
         <select
           value={college}
           onChange={handleCollegeChange}
-          className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-slate-200"
+          className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
         >
           {colleges.map((c) => (
             <option key={c.name} value={c.name}>{c.name}</option>
@@ -119,7 +122,7 @@ export default function CollegeEventsPage() {
         <button
           onClick={handleFetch}
           disabled={loading}
-          className="px-4 py-2 bg-amber-400 text-slate-900 rounded-xl font-semibold hover:bg-amber-300 disabled:opacity-50"
+          className="px-4 py-2 bg-emerald-500 text-black rounded-xl font-semibold hover:bg-emerald-600 border border-emerald-500/20 disabled:opacity-50 transition-all"
         >
           {loading ? 'Fetching...' : 'Fetch Events'}
         </button>
@@ -127,14 +130,20 @@ export default function CollegeEventsPage() {
 
       <div className="space-y-3">
         {events.map((event, index) => (
-          <div key={`${event.source_url || event.start || event.date || index}-${index}`} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <motion.div
+            key={`${event.source_url || event.start || event.date || index}-${index}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: Math.min(index * 0.04, 0.8) }}
+            whileHover={{ y: -1 }}
+            className="bg-black/40 border border-white/10 rounded-xl p-4 hover:border-emerald-500/20 transition-all">
             {(() => {
               const row = normalizeRow(event)
               return (
                 <>
             <div className="flex items-center justify-between">
               <h3 className="text-white font-semibold">{row.title}</h3>
-              <span className="text-xs px-2 py-1 bg-amber-400/20 text-amber-400 rounded-md">{row.type}</span>
+              <span className="text-xs px-2 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md">{row.type}</span>
             </div>
             <p className="text-slate-400 text-sm mt-1">{row.date || 'Date not parsed'} • {row.collegeName}</p>
             {row.source && (
@@ -143,9 +152,14 @@ export default function CollegeEventsPage() {
                 </>
               )
             })()}
-          </div>
+          </motion.div>
         ))}
-        {!events.length && <p className="text-slate-500 text-sm">No events loaded yet.</p>}
+        {!events.length && loading && (
+          <div className="flex items-center justify-center py-16">
+            <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        {!events.length && !loading && <p className="text-slate-500 text-sm">No events loaded yet.</p>}
       </div>
     </div>
   )

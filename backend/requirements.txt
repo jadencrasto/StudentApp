@@ -6,10 +6,8 @@ uvicorn[standard]>=0.29.0
 
 # Database
 sqlalchemy>=2.0.30
-asyncpg>=0.29.0            # async PostgreSQL driver
 aiosqlite>=0.20.0          # async SQLite driver (local dev fallback)
 alembic>=1.13.1            # database migrations
-psycopg2-binary>=2.9.9     # sync driver (for alembic)
 
 # Authentication
 python-jose[cryptography]>=3.3.0   # JWT
@@ -25,7 +23,6 @@ pydantic-settings>=2.2.1
 
 # OCR
 pytesseract>=0.3.10
-rapidocr-onnxruntime>=1.3.0  # fallback OCR when Tesseract binary is not installed
 Pillow>=10.4.0             # image processing
 pymupdf>=1.24.3            # PDF to image conversion (fitz)
 

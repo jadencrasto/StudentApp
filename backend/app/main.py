@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.database import engine, Base, ensure_assignment_ai_metadata_column
+from app.database import engine, Base, ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column, ensure_activity_recurrence_columns, ensure_notification_columns
 from app.models import *  # noqa
 
 from app.api.auth        import router as auth_router
@@ -19,8 +19,9 @@ from app.api.alerts      import router as alerts_router
 from app.api.timetable   import router as timetable_router
 from app.api.extract     import router as extract_router
 from app.api.college_events import router as college_events_router
-from app.api.classroom import router as classroom_router
+from app.api.classroom import router as classroom_router, oauth_router as google_oauth_router
 from app.api.chat import router as chat_router
+from app.api.dashboard import router as dashboard_router
 
 
 @asynccontextmanager
@@ -30,6 +31,9 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     await ensure_assignment_ai_metadata_column()
+    await ensure_assignment_classroom_id_column()
+    await ensure_activity_recurrence_columns()
+    await ensure_notification_columns()
     # Seed demo user for development
     await _seed_demo_user()
     from app.scheduler import start_scheduler, stop_scheduler
@@ -66,6 +70,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     openapi_url="/openapi.json",
+    redirect_slashes=False,
 )
 
 app.add_middleware(
@@ -88,11 +93,11 @@ api_router.include_router(timetable_router)
 api_router.include_router(college_events_router)
 api_router.include_router(classroom_router)
 api_router.include_router(chat_router)
+api_router.include_router(dashboard_router)
 
 app.include_router(api_router)
-app.include_router(college_events_router)
-app.include_router(classroom_router)
 app.include_router(extract_router)
+app.include_router(google_oauth_router)  # OAuth at root: /auth/google/*
 
 
 @app.get("/health")

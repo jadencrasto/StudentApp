@@ -2,7 +2,8 @@ import client from './client'
 
 export const uploadTimetable = (formData) =>
   client.post('/timetable/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: { 'Content-Type': undefined }, // let axios auto-detect multipart boundary
+    timeout: 300000, // 5 minutes for AI extraction
   })
 
 export const bulkSaveTimetableEntries = (entries) =>

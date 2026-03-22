@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useLocation } from 'react-router-dom'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 
 const CLASSROOM_COURSES_KEY = 'sais_classroom_courses'
 const CLASSROOM_EVENTS_KEY = 'sais_classroom_events'
+const CLASSROOM_MATERIALS_KEY = 'sais_classroom_materials'
 const CLASSROOM_LAST_SYNC_KEY = 'sais_classroom_last_sync'
 
 export default function ClassroomDashboardPage() {
   const [courses, setCourses] = useState([])
   const [events, setEvents] = useState([])
+  const [materials, setMaterials] = useState([])
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const [loading, setLoading] = useState(false)
   const [authError, setAuthError] = useState(null)   // 'not_connected' | 'expired' | null
@@ -19,6 +22,7 @@ export default function ClassroomDashboardPage() {
     try {
       const cachedCourses = localStorage.getItem(CLASSROOM_COURSES_KEY)
       const cachedEvents = localStorage.getItem(CLASSROOM_EVENTS_KEY)
+      const cachedMaterials = localStorage.getItem(CLASSROOM_MATERIALS_KEY)
       const cachedLastSync = localStorage.getItem(CLASSROOM_LAST_SYNC_KEY)
 
       if (cachedCourses) {
@@ -26,6 +30,9 @@ export default function ClassroomDashboardPage() {
       }
       if (cachedEvents) {
         setEvents(JSON.parse(cachedEvents))
+      }
+      if (cachedMaterials) {
+        setMaterials(JSON.parse(cachedMaterials))
       }
       if (cachedLastSync) {
         const parsed = Number(cachedLastSync)
@@ -36,6 +43,7 @@ export default function ClassroomDashboardPage() {
     } catch {
       localStorage.removeItem(CLASSROOM_COURSES_KEY)
       localStorage.removeItem(CLASSROOM_EVENTS_KEY)
+      localStorage.removeItem(CLASSROOM_MATERIALS_KEY)
       localStorage.removeItem(CLASSROOM_LAST_SYNC_KEY)
     }
   }, [])
@@ -55,6 +63,7 @@ export default function ClassroomDashboardPage() {
         return
       }
       const apiBase = (client.defaults.baseURL || 'http://127.0.0.1:8000/api/v1').replace(/\/$/, '')
+      // OAuth routes are mounted at root level (not under /api/v1), extract just the origin
       const apiOrigin = new URL(apiBase).origin
       window.location.href = `${apiOrigin}/auth/google/connect?token=${encodeURIComponent(token)}`
     } catch {
@@ -65,26 +74,36 @@ export default function ClassroomDashboardPage() {
   const loadClassroom = useCallback(async ({ silent = false } = {}) => {
     setLoading(true)
     try {
-      const [coursesResp, eventsResp] = await Promise.all([
-        client.get('/classroom/courses'),
-        client.get('/classroom/events'),
-      ])
-      const nextCourses = coursesResp.data || []
-      const nextEvents = eventsResp.data || []
+      // Check connection status first to avoid noisy errors when not connected
+      const statusResp = await client.get('/classroom/status')
+      if (!statusResp.data?.connected) {
+        setAuthError('not_connected')
+        return
+      }
+
+      // Use combined sync endpoint — fetches courses once, then
+      // events + materials in one pass (avoids triple Google API roundtrip)
+      const syncResp = await client.get('/classroom/sync', { timeout: 300000 })
+      const syncData = syncResp.data || {}
+      const nextCourses = syncData.courses || []
+      const nextEvents = syncData.events || []
+      const nextMaterials = syncData.materials || []
       const syncedAt = Date.now()
       setCourses(nextCourses)
       setEvents(nextEvents)
+      setMaterials(nextMaterials)
       setLastSyncedAt(syncedAt)
       setAuthError(null)
       localStorage.setItem(CLASSROOM_COURSES_KEY, JSON.stringify(nextCourses))
       localStorage.setItem(CLASSROOM_EVENTS_KEY, JSON.stringify(nextEvents))
+      localStorage.setItem(CLASSROOM_MATERIALS_KEY, JSON.stringify(nextMaterials))
       localStorage.setItem(CLASSROOM_LAST_SYNC_KEY, String(syncedAt))
     } catch (error) {
       const status = error.response?.status
       const detail = error.response?.data?.detail || ''
       if (status === 404 || detail.toLowerCase().includes('not connected')) {
         setAuthError('not_connected')
-      } else if (status === 401 || detail.toLowerCase().includes('expired') || detail.toLowerCase().includes('revoked')) {
+      } else if (status === 401 || status === 403 || detail.toLowerCase().includes('expired') || detail.toLowerCase().includes('revoked')) {
         setAuthError('expired')
       } else {
         if (!silent) toast.error(detail || 'Failed to load Classroom data')
@@ -100,8 +119,10 @@ export default function ClassroomDashboardPage() {
       setAuthError('not_connected')
       setCourses([])
       setEvents([])
+      setMaterials([])
       localStorage.removeItem(CLASSROOM_COURSES_KEY)
       localStorage.removeItem(CLASSROOM_EVENTS_KEY)
+      localStorage.removeItem(CLASSROOM_MATERIALS_KEY)
       localStorage.removeItem(CLASSROOM_LAST_SYNC_KEY)
       toast.success('Google account disconnected — click Connect to reauthorize')
     } catch {
@@ -222,19 +243,21 @@ export default function ClassroomDashboardPage() {
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="font-display text-3xl text-white mb-2">Google Classroom</h1>
-      <p className="text-slate-400 mb-6">Connect Google and view your courses, assignments, announcements.</p>
+      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+        <h1 className="font-display text-3xl text-white mb-2">Google Classroom</h1>
+        <p className="text-slate-400 mb-6">Connect Google and view your courses, assignments, announcements.</p>
+      </motion.div>
 
       {/* Auth error banner */}
       {authError && (
-        <div className="mb-6 flex items-center justify-between bg-amber-400/10 border border-amber-400/30 rounded-xl px-5 py-4">
+        <div className="mb-6 flex items-center justify-between bg-emerald-400/10 border border-emerald-400/30 rounded-xl px-5 py-4">
           <div>
-            <p className="text-amber-300 font-semibold text-sm">
+            <p className="text-emerald-300 font-semibold text-sm">
               {authError === 'expired'
                 ? 'Your Google credentials expired or were revoked.'
                 : 'Google Classroom is not connected.'}
             </p>
-            <p className="text-amber-400/70 text-xs mt-0.5">
+            <p className="text-emerald-400/70 text-xs mt-0.5">
               {authError === 'expired'
                 ? 'Click Reconnect to re-authorize with updated permissions.'
                 : 'Connect your Google account to sync courses and assignments.'}
@@ -242,7 +265,7 @@ export default function ClassroomDashboardPage() {
           </div>
           <button
             onClick={connectGoogle}
-            className="ml-4 px-4 py-2 bg-amber-400 text-slate-900 rounded-xl font-bold text-sm hover:bg-amber-300 transition-all flex-shrink-0"
+            className="ml-4 px-4 py-2 bg-emerald-400 text-slate-900 rounded-xl font-bold text-sm hover:bg-emerald-300 transition-all flex-shrink-0"
           >
             {authError === 'expired' ? 'Reconnect Google' : 'Connect Google'}
           </button>
@@ -250,7 +273,7 @@ export default function ClassroomDashboardPage() {
       )}
 
       <div className="flex gap-3 mb-6 flex-wrap">
-        <button onClick={connectGoogle} className="px-4 py-2 bg-amber-400 text-slate-900 rounded-xl font-semibold hover:bg-amber-300 text-sm">
+        <button onClick={connectGoogle} className="px-4 py-2 bg-emerald-400 text-slate-900 rounded-xl font-semibold hover:bg-emerald-300 text-sm">
           {courses.length ? 'Reconnect Google' : 'Connect Google Classroom'}
         </button>
         <button onClick={loadClassroom} disabled={loading} className="px-4 py-2 bg-slate-800 border border-slate-700 text-slate-100 rounded-xl hover:bg-slate-700 disabled:opacity-50 text-sm">
@@ -264,14 +287,25 @@ export default function ClassroomDashboardPage() {
       </div>
       <p className="text-slate-500 text-sm mb-6">Last synced: {lastSyncedLabel}</p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.15 }}
+        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+      >
+        <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md">
           <h2 className="text-white font-semibold mb-3">Courses</h2>
           <div className="space-y-2">
-            {courses.map((course) => (
-              <div key={course.id} className="p-3 bg-slate-800/70 rounded-lg text-sm text-slate-200">
+            {courses.map((course, i) => (
+              <motion.div
+                key={course.id}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3, delay: 0.2 + i * 0.03 }}
+                className="p-3 bg-slate-800/70 rounded-lg text-sm text-slate-200 hover:bg-slate-800 transition-colors"
+              >
                 {course.name}
-              </div>
+              </motion.div>
             ))}
             {!courses.length && <p className="text-slate-500 text-sm">No courses loaded.</p>}
           </div>
@@ -295,6 +329,26 @@ export default function ClassroomDashboardPage() {
                       {(event.submission_status === 'late_submit' || event.submission_status === 'submitted') && (
                         <p className="text-slate-400 text-xs">Status: {event.submission_status === 'late_submit' ? 'Late submit' : 'Submitted'}</p>
                       )}
+                      {event.attachments && event.attachments.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {event.attachments.map((att, ai) => (
+                            <a
+                              key={ai}
+                              href={att.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-700/60 text-emerald-300 text-xs rounded hover:bg-slate-600/80 transition-colors"
+                              title={att.title}
+                            >
+                              {att.type === 'drive' && '📄'}
+                              {att.type === 'youtube' && '▶️'}
+                              {att.type === 'link' && '🔗'}
+                              {att.type === 'form' && '📝'}
+                              <span className="max-w-[120px] truncate">{att.title}</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {!group.items.length && <p className="text-slate-500 text-sm">No items.</p>}
@@ -304,6 +358,61 @@ export default function ClassroomDashboardPage() {
 
             {!assignments.length && <p className="text-slate-500 text-sm">No assignments loaded.</p>}
           </div>
+        </div>
+      </motion.div>
+
+      {/* Course Materials / Documents */}
+      <div className="mt-6 bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <h2 className="text-white font-semibold mb-3">Course Materials &amp; Documents</h2>
+        <div className="space-y-3">
+          {materials.length > 0 ? materials.map((mat, idx) => (
+            <div key={mat.id || idx} className="p-4 bg-slate-800/70 rounded-lg">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-slate-200 font-medium text-sm">{mat.title}</p>
+                  <p className="text-slate-400 text-xs mt-0.5">{mat.course}</p>
+                  {mat.description && (
+                    <p className="text-slate-500 text-xs mt-1 line-clamp-2">{mat.description}</p>
+                  )}
+                  <p className="text-slate-500 text-xs mt-1">
+                    Posted: {mat.creation_time ? new Date(mat.creation_time).toLocaleDateString() : 'Unknown'}
+                  </p>
+                </div>
+                {mat.alternate_link && (
+                  <a
+                    href={mat.alternate_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-shrink-0 px-3 py-1.5 bg-amber-400/10 text-amber-300 text-xs font-medium rounded-lg hover:bg-amber-400/20 transition-colors"
+                  >
+                    Open
+                  </a>
+                )}
+              </div>
+              {mat.attachments && mat.attachments.length > 0 && (
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {mat.attachments.map((att, ai) => (
+                    <a
+                      key={ai}
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-700/60 text-amber-300 text-xs rounded-lg hover:bg-slate-600/80 transition-colors"
+                      title={att.title}
+                    >
+                      {att.type === 'drive' && '📄'}
+                      {att.type === 'youtube' && '▶️'}
+                      {att.type === 'link' && '🔗'}
+                      {att.type === 'form' && '📝'}
+                      <span className="max-w-[180px] truncate">{att.title}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )) : (
+            <p className="text-slate-500 text-sm">No materials loaded. Connect Google Classroom to see course materials.</p>
+          )}
         </div>
       </div>
     </div>

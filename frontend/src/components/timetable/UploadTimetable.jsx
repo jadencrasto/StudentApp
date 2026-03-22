@@ -38,7 +38,7 @@ export default function UploadTimetable({ onClose, onExtracted }) {
     try {
       const { data } = await uploadTimetable(formData)
       if (data.status !== 'success') {
-        toast.error(data.error || 'Gemini extraction failed')
+        toast.error(data.error || 'AI extraction failed')
         return
       }
 

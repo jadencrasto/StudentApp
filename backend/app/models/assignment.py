@@ -25,6 +25,7 @@ class AssignmentStatus(str, enum.Enum):
     pending     = "pending"
     in_progress = "in_progress"
     completed   = "completed"
+    overdue     = "overdue"
 class Assignment(Base):
     __tablename__ = "assignments"
 
@@ -41,6 +42,7 @@ class Assignment(Base):
     ai_metadata:         Mapped[dict | None]    = mapped_column(JSON)
 
     source_document_id:  Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    classroom_id:        Mapped[str | None]     = mapped_column(String(255), nullable=True, index=True)
 
     created_at:          Mapped[datetime]       = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at:          Mapped[datetime]       = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

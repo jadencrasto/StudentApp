@@ -21,6 +21,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/classroom.coursework.me.readonly",
     "https://www.googleapis.com/auth/classroom.student-submissions.me.readonly",
     "https://www.googleapis.com/auth/classroom.announcements.readonly",
+    "https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly",
 ]
 
 
@@ -128,7 +129,7 @@ async def get_valid_access_token(db: AsyncSession, user_id: UUID) -> str:
             await asyncio.to_thread(creds.refresh, Request())
         except Exception as exc:
             raise HTTPException(
-                status_code=401,
+                status_code=403,
                 detail="Google credentials expired or revoked. Please reconnect your Google account.",
             ) from exc
         record.access_token = encrypt_secret(creds.token)
@@ -138,7 +139,7 @@ async def get_valid_access_token(db: AsyncSession, user_id: UUID) -> str:
         await db.flush()
     elif creds.expired and not creds.refresh_token:
         raise HTTPException(
-            status_code=401,
+            status_code=403,
             detail="Google access token expired and no refresh token is stored. Please reconnect your Google account.",
         )
 

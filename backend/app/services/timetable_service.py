@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.attendance import AttendanceRecord, Subject
+from app.models.attendance import AttendanceRecord, AttendanceStatus, Subject
 from app.models.timetable import TimetableDocument, TimetableEntry
 from app.services.ollama_timetable_extractor import OllamaTimetableExtractor
 
@@ -14,8 +14,18 @@ from app.services.ollama_timetable_extractor import OllamaTimetableExtractor
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
-def _parse_time_string(value: str):
-    return datetime.strptime(value, "%H:%M").time()
+def _parse_time_string(value):
+    """Parse a time string (HH:MM or HH:MM:SS) or return a time object as-is."""
+    from datetime import time as _time
+    if isinstance(value, _time):
+        return value
+    value = str(value).strip()
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            return datetime.strptime(value, fmt).time()
+        except ValueError:
+            continue
+    raise ValueError(f"Cannot parse time: {value!r}")
 
 
 async def match_subject_to_database(extracted_name: str, user_id: UUID, db: AsyncSession) -> UUID | None:
@@ -155,10 +165,21 @@ async def get_timetable_entries(user_id: UUID, db: AsyncSession) -> list[dict]:
 
 
 async def get_today_classes(user_id: UUID, db: AsyncSession) -> list[dict]:
-    weekday = datetime.now().weekday()
+    today = datetime.now()
+    weekday = today.weekday()
+    today_date = today.date()
+    
     result = await db.execute(
-        select(TimetableEntry, Subject)
+        select(TimetableEntry, Subject, AttendanceRecord)
         .join(Subject, TimetableEntry.subject_id == Subject.id)
+        .outerjoin(
+            AttendanceRecord,
+            and_(
+                AttendanceRecord.subject_id == Subject.id,
+                AttendanceRecord.user_id == user_id,
+                AttendanceRecord.class_date == today_date
+            )
+        )
         .where(
             and_(
                 TimetableEntry.user_id == user_id,
@@ -170,10 +191,10 @@ async def get_today_classes(user_id: UUID, db: AsyncSession) -> list[dict]:
     )
 
     classes = []
-    for entry, subject in result.all():
+    for entry, subject, attendance_record in result.all():
         classes.append({
-            "id": entry.id,
-            "subject_id": entry.subject_id,
+            "id": str(entry.id),
+            "subject_id": str(subject.id),
             "subject_name": subject.name,
             "day_of_week": entry.day_of_week,
             "start_time": entry.start_time.strftime("%H:%M"),
@@ -181,6 +202,8 @@ async def get_today_classes(user_id: UUID, db: AsyncSession) -> list[dict]:
             "room": entry.room,
             "notes": entry.notes,
             "is_active": entry.is_active,
+            "attendance_status": attendance_record.status.value if attendance_record else None,
+            "attendance_id": str(attendance_record.id) if attendance_record else None,
         })
     return classes
 
@@ -316,9 +339,9 @@ async def get_end_of_day_summary(user_id: UUID, db: AsyncSession) -> dict:
     )
     records = list(records_result.scalars().all())
 
-    present_count = len([r for r in records if str(r.status) == "present"])
-    absent_count = len([r for r in records if str(r.status) == "absent"])
-    late_count = len([r for r in records if str(r.status) == "late"])
+    present_count = len([r for r in records if r.status == AttendanceStatus.present])
+    absent_count = len([r for r in records if r.status == AttendanceStatus.absent])
+    late_count = len([r for r in records if r.status == AttendanceStatus.late])
 
     return {
         "type": "end_of_day",

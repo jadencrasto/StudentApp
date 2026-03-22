@@ -90,7 +90,9 @@ async def get_events(db: AsyncSession, user_id: UUID) -> list[dict]:
 
             events.append(
                 {
+                    "classroom_id": item.get("google_assignment_id"),
                     "title": item.get("title"),
+                    "description": item.get("description", ""),
                     "course": course_name,
                     "type": "Assignment",
                     "due_date": due_date,
@@ -122,6 +124,7 @@ async def get_events(db: AsyncSession, user_id: UUID) -> list[dict]:
                     "due_date": ann.get("creationTime"),
                     "posted_at": ann.get("creationTime"),
                     "link": ann.get("alternateLink"),
+                    "attachments": ClassroomClient._extract_attachments(ann.get("materials")),
                 }
             )
 
@@ -133,3 +136,181 @@ async def get_events(db: AsyncSession, user_id: UUID) -> list[dict]:
         reverse=True,
     )
     return events
+
+
+async def get_materials(db: AsyncSession, user_id: UUID) -> list[dict]:
+    """Fetch course materials (documents/resources) from all courses."""
+    classroom_client, _ = await _get_classroom_client(db, user_id)
+    courses = await asyncio.to_thread(classroom_client.get_courses)
+
+    materials: list[dict] = []
+    for course in courses:
+        course_id = course.get("id")
+        course_name = course.get("name", "Unknown course")
+        if not course_id:
+            continue
+
+        try:
+            course_materials = await asyncio.to_thread(
+                classroom_client.get_course_materials, course_id
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Materials fetch failed for %s: %s", course_name, exc
+            )
+            course_materials = []
+
+        for mat in course_materials:
+            materials.append({
+                **mat,
+                "course": course_name,
+            })
+
+    # Sort by creation_time descending
+    materials.sort(
+        key=lambda m: m.get("creation_time") or "0000-01-01",
+        reverse=True,
+    )
+    return materials
+
+
+async def sync_all(db: AsyncSession, user_id: UUID) -> dict:
+    """Combined sync: fetch courses once, then events + materials in one pass.
+
+    This avoids the triple course-fetch and rate-limit issues when the
+    frontend fires three parallel requests.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    classroom_client, _ = await _get_classroom_client(db, user_id)
+
+    # 1) Fetch courses once
+    courses = await asyncio.to_thread(classroom_client.get_courses)
+
+    events: list[dict] = []
+    materials: list[dict] = []
+
+    # 2) For each course, fetch coursework, announcements AND materials
+    for course in courses:
+        course_id = course.get("id")
+        course_name = course.get("name", "Unknown course")
+        if not course_id:
+            continue
+
+        # ── Coursework + submissions ──
+        try:
+            coursework_with_status = await asyncio.to_thread(
+                classroom_client.get_all_coursework_with_status, course_id
+            )
+        except Exception as exc:
+            log.warning("Coursework fetch failed for %s: %s", course_name, exc)
+            coursework_with_status = []
+
+        for item in coursework_with_status:
+            due_dt = item.get("due_date")
+            due_date = due_dt.date().isoformat() if due_dt else None
+            raw_status = item.get("status")
+            if raw_status == "missing":
+                submission_status = "missing"
+            elif raw_status in {"submitted", "graded"}:
+                submission_status = "submitted"
+            else:
+                submission_status = "assigned"
+
+            events.append({
+                "classroom_id": item.get("google_assignment_id"),
+                "title": item.get("title"),
+                "description": item.get("description", ""),
+                "course": course_name,
+                "type": "Assignment",
+                "due_date": due_date,
+                "posted_at": item.get("posted_at"),
+                "submission_status": submission_status,
+                "workflow_status": raw_status,
+                "is_graded": raw_status == "graded",
+                "assigned_grade": item.get("assigned_grade"),
+                "submission_state": item.get("submission_state"),
+                "link": item.get("submission_url"),
+                "attachments": item.get("attachments", []),
+            })
+
+        # ── Announcements ──
+        try:
+            announcements_items = await asyncio.to_thread(
+                classroom_client.get_announcements, course_id
+            )
+        except Exception as exc:
+            log.warning("Announcements fetch failed for %s: %s", course_name, exc)
+            announcements_items = []
+
+        for ann in announcements_items:
+            events.append({
+                "title": (ann.get("text", "Announcement")[:120]),
+                "course": course_name,
+                "type": "Announcement",
+                "due_date": ann.get("creationTime"),
+                "posted_at": ann.get("creationTime"),
+                "link": ann.get("alternateLink"),
+                "attachments": ClassroomClient._extract_attachments(ann.get("materials")),
+            })
+
+        # ── Course materials (teacher-posted documents) ──
+        try:
+            course_materials = await asyncio.to_thread(
+                classroom_client.get_course_materials, course_id
+            )
+        except Exception as exc:
+            log.warning("Materials fetch failed for %s: %s", course_name, exc)
+            course_materials = []
+
+        for mat in course_materials:
+            materials.append({**mat, "course": course_name})
+
+    # 3) Sort
+    events.sort(
+        key=lambda e: (e.get("due_date") or e.get("posted_at") or "0000-01-01", e.get("title") or ""),
+        reverse=True,
+    )
+    materials.sort(key=lambda m: m.get("creation_time") or "0000-01-01", reverse=True)
+
+    # 4) Collect document/attachments from events too
+    all_documents: list[dict] = list(materials)  # start with courseWorkMaterials
+    for ev in events:
+        atts = ev.get("attachments", [])
+        if atts:
+            for att in atts:
+                all_documents.append({
+                    "id": ev.get("classroom_id", ""),
+                    "title": att.get("title", ev.get("title", "Untitled")),
+                    "description": ev.get("description", ""),
+                    "state": "PUBLISHED",
+                    "alternate_link": att.get("url", ""),
+                    "creation_time": ev.get("posted_at"),
+                    "update_time": ev.get("posted_at"),
+                    "course": ev.get("course", ""),
+                    "source": ev.get("type", "Assignment"),
+                    "attachments": [att],
+                })
+
+    # Deduplicate documents by URL
+    seen_urls: set[str] = set()
+    unique_docs: list[dict] = []
+    for doc in all_documents:
+        url = doc.get("alternate_link") or ""
+        # For docs with nested attachments, use attachment URL
+        if doc.get("attachments"):
+            url = doc["attachments"][0].get("url", url)
+        if url and url in seen_urls:
+            continue
+        if url:
+            seen_urls.add(url)
+        unique_docs.append(doc)
+
+    unique_docs.sort(key=lambda m: m.get("creation_time") or "0000-01-01", reverse=True)
+
+    return {
+        "courses": courses,
+        "events": events,
+        "materials": unique_docs,
+    }

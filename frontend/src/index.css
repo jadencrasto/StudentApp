@@ -12,11 +12,12 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
   }
 
   body {
     font-family: 'DM Sans', sans-serif;
-    background: #0A0F1E;
+    background: #000000;
     color: #F5F2EC;
   }
 
@@ -26,19 +27,76 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: #0A0A0A;
   }
   ::-webkit-scrollbar-thumb {
-    background: #1F2937;
+    background: #10B981;
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #374151;
+    background: #34D399;
   }
 
   /* Date input styling */
   input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(0.5);
     cursor: pointer;
+  }
+}
+
+/* ── Global Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+  50%      { box-shadow: 0 0 20px 4px rgba(16,185,129,0.15); }
+}
+@keyframes progress-fill {
+  from { width: 0%; }
+}
+
+/* Skeleton loading shimmer */
+.skeleton {
+  background: linear-gradient(90deg, #0f0f0f 25%, #1a2e26 50%, #0f0f0f 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+  border-radius: 0.5rem;
+}
+
+/* Smooth focus ring for all interactive elements */
+@layer utilities {
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:ring-offset-0;
+  }
+  .glass-card {
+    @apply bg-white/[0.02] backdrop-blur-sm border border-white/10;
+  }
+  .hover-lift {
+    @apply transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20;
+  }
+  .press-scale {
+    @apply transition-transform duration-150 active:scale-[0.97];
   }
 }

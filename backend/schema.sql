@@ -45,6 +45,7 @@ CREATE TABLE assignments (
                 )) DEFAULT 'pending',
 
     source_document_id UUID,                           -- linked doc if extracted by AI
+    classroom_id       VARCHAR(255),                    -- Google Classroom assignment ID (for dedup on sync)
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );

@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime, date, time
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, AliasChoices
 
 
 # ─── Auth ────────────────────────────────────────────────────
@@ -71,7 +71,9 @@ class AssignmentOut(BaseModel):
     status:             str
     ai_metadata:        Optional[dict] = None
     source_document_id: Optional[UUID] = None
+    classroom_id:       Optional[str]  = None
     created_at:         datetime
+    updated_at:         datetime
 
     model_config = {"from_attributes": True}
 
@@ -102,7 +104,8 @@ class SubjectOut(BaseModel):
 
 class AttendanceMarkRequest(BaseModel):
     subject_id: UUID
-    class_date: date
+    timetable_entry_id: Optional[UUID] = None
+    class_date: date = Field(validation_alias=AliasChoices('class_date', 'date'))
     status:     str  # present | absent | late | excused
     notes:      Optional[str] = None
 
@@ -208,11 +211,33 @@ class EndOfDayOut(BaseModel):
 class ActivityCreate(BaseModel):
     title:         str = Field(max_length=500)
     category:      Optional[str] = None
-    activity_date: date
+    # Not required when a recurrence pattern is set (start/end dates used instead)
+    activity_date: Optional[date] = None
     start_time:    Optional[time] = None
     end_time:      Optional[time] = None
     location:      Optional[str] = None
     description:   Optional[str] = None
+    # Recurrence
+    recurrence_type:       Optional[str] = "none"   # none|daily|every_2_days|...
+    recurrence_start_date: Optional[date] = None
+    recurrence_end_date:   Optional[date] = None
+    custom_interval:       Optional[int]  = None
+    custom_interval_unit:  Optional[str]  = None    # days|weeks|months
+
+
+class ActivityUpdate(BaseModel):
+    title:                 Optional[str]  = None
+    category:              Optional[str]  = None
+    activity_date:         Optional[date] = None
+    start_time:            Optional[time] = None
+    end_time:              Optional[time] = None
+    location:              Optional[str]  = None
+    description:           Optional[str]  = None
+    recurrence_type:       Optional[str]  = None
+    recurrence_start_date: Optional[date] = None
+    recurrence_end_date:   Optional[date] = None
+    custom_interval:       Optional[int]  = None
+    custom_interval_unit:  Optional[str]  = None
 
 
 class ActivityOut(BaseModel):
@@ -226,6 +251,14 @@ class ActivityOut(BaseModel):
     description:    Optional[str]
     has_conflict:   bool
     conflict_detail: Optional[str]
+    # Recurrence
+    recurrence_type:        Optional[str]  = "none"
+    recurrence_start_date:  Optional[date] = None
+    recurrence_end_date:    Optional[date] = None
+    custom_interval:        Optional[int]  = None
+    custom_interval_unit:   Optional[str]  = None
+    parent_activity_id:     Optional[UUID] = None
+    is_recurring_instance:  bool           = False
     created_at:     datetime
 
     model_config = {"from_attributes": True}
@@ -274,13 +307,30 @@ class AlertOut(BaseModel):
 
 # ─── Dashboard ───────────────────────────────────────────────
 
+class DashboardStatsOut(BaseModel):
+    pending_assignments:  int
+    attendance_avg:       float
+    upcoming_activities:  int
+    unread_alerts:        int
+
+class DashboardDeadlineOut(BaseModel):
+    id:       str
+    title:    str
+    subject:  Optional[str] = None
+    deadline: str
+    status:   str
+
+class DashboardAlertOut(BaseModel):
+    id:         str
+    title:      str
+    message:    str
+    type:       str
+    created_at: str
+
 class DashboardOut(BaseModel):
-    upcoming_assignments:  list[AssignmentOut]
-    attendance_summaries:  list[AttendanceSummaryOut]
-    recent_activities:     list[ActivityOut]
-    unread_alerts:         list[AlertOut]
-    total_assignments:     int
-    overdue_count:         int
+    stats:     DashboardStatsOut
+    deadlines: list[DashboardDeadlineOut]
+    alerts:    list[DashboardAlertOut]
 
 
 # ─── Chat / Chatbot ──────────────────────────────────────────

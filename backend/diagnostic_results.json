@@ -1,0 +1,1037 @@
+{
+  "light_grid.png": {
+    "count": 30,
+    "entries": [
+      {
+        "subject": "Mathematics",
+        "day_of_week": 0,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 0,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 0,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 0,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 0,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 0,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 1,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 1,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 1,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 1,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 1,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 1,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 2,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 2,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 2,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 2,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 2,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 2,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 3,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 3,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 3,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 3,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 3,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 3,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 4,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 4,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 4,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 4,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 4,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 4,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      }
+    ]
+  },
+  "light_lifestyle.png": {
+    "count": 35,
+    "entries": [
+      {
+        "subject": "Mathematics",
+        "day_of_week": 0,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 0,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 0,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 0,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 0,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 0,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 0,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 1,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 1,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 1,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 1,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 1,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 1,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 1,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 2,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 2,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 2,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 2,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 2,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 2,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 2,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 3,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 3,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 3,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 3,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 3,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 3,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 3,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 4,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 4,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 4,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 4,
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 4,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 4,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 4,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      }
+    ]
+  },
+  "dark_grid_1.png": {
+    "count": 35,
+    "entries": [
+      {
+        "subject": "Mathematics",
+        "day_of_week": 0,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 0,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 0,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 0,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 0,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 0,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 0,
+        "start_time": "15:00",
+        "end_time": "16:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 1,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 1,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 1,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 1,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 1,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 1,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 1,
+        "start_time": "15:00",
+        "end_time": "16:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 2,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 2,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 2,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 2,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 2,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 2,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 2,
+        "start_time": "15:00",
+        "end_time": "16:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 3,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 3,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 3,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 3,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 3,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 3,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 3,
+        "start_time": "15:00",
+        "end_time": "16:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 4,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 4,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 4,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 4,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 4,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 4,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "Science",
+        "day_of_week": 4,
+        "start_time": "15:00",
+        "end_time": "16:00",
+        "room": null
+      }
+    ]
+  },
+  "dark_grid_2.png": {
+    "count": 45,
+    "entries": [
+      {
+        "subject": "Mathematics",
+        "day_of_week": 0,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 0,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 0,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 0,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 0,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 0,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 0,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 0,
+        "start_time": "17:00",
+        "end_time": "18:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 0,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 1,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 1,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 1,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 1,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 1,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 1,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 1,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 1,
+        "start_time": "17:00",
+        "end_time": "18:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 1,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 2,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 2,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 2,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 2,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 2,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 2,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 2,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 2,
+        "start_time": "17:00",
+        "end_time": "18:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 2,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 3,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 3,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 3,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 3,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 3,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 3,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 3,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 3,
+        "start_time": "17:00",
+        "end_time": "18:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 3,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      },
+      {
+        "subject": "Mathematics",
+        "day_of_week": 4,
+        "start_time": "08:00",
+        "end_time": "09:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 4,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 4,
+        "start_time": "10:00",
+        "end_time": "11:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 4,
+        "start_time": "11:00",
+        "end_time": "12:00",
+        "room": null
+      },
+      {
+        "subject": "Biology",
+        "day_of_week": 4,
+        "start_time": "13:00",
+        "end_time": "14:00",
+        "room": null
+      },
+      {
+        "subject": "Social Studies",
+        "day_of_week": 4,
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "room": null
+      },
+      {
+        "subject": "English Language",
+        "day_of_week": 4,
+        "start_time": "16:00",
+        "end_time": "17:00",
+        "room": null
+      },
+      {
+        "subject": "Physics",
+        "day_of_week": 4,
+        "start_time": "17:00",
+        "end_time": "18:00",
+        "room": null
+      },
+      {
+        "subject": "Chemistry",
+        "day_of_week": 4,
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "room": null
+      }
+    ]
+  }
+}

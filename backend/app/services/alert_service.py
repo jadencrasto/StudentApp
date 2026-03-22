@@ -28,6 +28,7 @@ async def generate_alerts(user_id: UUID, db: AsyncSession) -> list[Alert]:
     new_alerts += await _check_overload(user_id, db)
     new_alerts += await _check_attendance(user_id, db)
     new_alerts += await _check_deadline_soon(user_id, db)
+    new_alerts += await _check_activity_conflicts(user_id, db)
 
     # Persist only alerts not already saved (avoid duplicates)
     for alert in new_alerts:
@@ -41,7 +42,7 @@ async def get_alerts(
 ) -> list[Alert]:
     query = select(Alert).where(Alert.user_id == user_id)
     if unread_only:
-        query = query.where(Alert.is_read == False)
+        query = query.where(Alert.is_read.is_(False))
     query = query.order_by(Alert.created_at.desc())
     result = await db.execute(query)
     return list(result.scalars().all())
@@ -52,9 +53,11 @@ async def mark_alert_read(user_id: UUID, alert_id: UUID, db: AsyncSession) -> No
         select(Alert).where(and_(Alert.id == alert_id, Alert.user_id == user_id))
     )
     alert = result.scalar_one_or_none()
-    if alert:
-        alert.is_read = True
-        await db.flush()
+    if not alert:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.is_read = True
+    await db.flush()
 
 
 # ─── Rule 1: Overload ─────────────────────────────────────────
@@ -180,6 +183,77 @@ async def _check_deadline_soon(user_id: UUID, db: AsyncSession) -> list[Alert]:
     return alerts
 
 
+# ─── Rule 4: Activity-Assignment Conflict ─────────────────────
+
+async def _check_activity_conflicts(user_id: UUID, db: AsyncSession) -> list[Alert]:
+    """Flag activities whose date matches an assignment deadline."""
+    today = date.today()
+
+    # Get activities in the future
+    activities_result = await db.execute(
+        select(Activity).where(
+            and_(
+                Activity.user_id == user_id,
+                Activity.activity_date >= today,
+            )
+        )
+    )
+    activities = activities_result.scalars().all()
+    if not activities:
+        return []
+
+    # Get non-completed assignments with deadlines
+    assignments_result = await db.execute(
+        select(Assignment).where(
+            and_(
+                Assignment.user_id == user_id,
+                Assignment.deadline >= today,
+                Assignment.status != AssignmentStatus.completed.value,
+            )
+        )
+    )
+    assignments = assignments_result.scalars().all()
+    if not assignments:
+        return []
+
+    # Build a set of deadline dates for quick lookup
+    deadline_map: dict[date, list[Assignment]] = {}
+    for a in assignments:
+        if a.deadline:
+            deadline_map.setdefault(a.deadline, []).append(a)
+
+    alerts = []
+    for activity in activities:
+        conflicting = deadline_map.get(activity.activity_date, [])
+        if not conflicting:
+            continue
+
+        # Check if we already logged this conflict alert
+        existing = await _alert_exists(
+            user_id, AlertType.activity_conflict, db, assignment_id=conflicting[0].id
+        )
+        if existing:
+            continue
+
+        conflict_titles = ", ".join(a.title for a in conflicting[:3])
+        alerts.append(Alert(
+            user_id=user_id,
+            alert_type=AlertType.activity_conflict,
+            severity=AlertSeverity.warning,
+            title=f"Schedule Conflict: {activity.title}",
+            message=(
+                f"Your activity '{activity.title}' on {activity.activity_date.isoformat()} "
+                f"conflicts with deadline(s): {conflict_titles}. "
+                "Consider rescheduling or completing the assignment(s) early."
+            ),
+            related_assignment_id=conflicting[0].id,
+            related_activity_id=activity.id,
+            expires_at=activity.activity_date,
+        ))
+
+    return alerts
+
+
 # ─── Helper: avoid duplicate alerts ───────────────────────────
 
 async def _alert_exists(
@@ -194,7 +268,7 @@ async def _alert_exists(
         and_(
             Alert.user_id == user_id,
             Alert.alert_type == alert_type,
-            Alert.is_read == False,
+            Alert.is_read.is_(False),
         )
     )
     if subject_id:

@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "SAIS"
     DEBUG: bool = True
-    ALLOWED_ORIGINS: str = "http://localhost:5173"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
 
     # Database
     DATABASE_URL: str
