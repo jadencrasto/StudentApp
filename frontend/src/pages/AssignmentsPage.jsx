@@ -13,10 +13,10 @@ const TASK_TYPES = ['assignment', 'exam', 'quiz', 'project', 'announcement', 'ot
 const PRIORITIES = ['low', 'medium', 'high']
 const STATUSES = ['pending', 'in_progress', 'completed', 'overdue']
 
-const typeColors = { assignment: 'bg-blue-400/10 text-blue-400', exam: 'bg-red-400/10 text-red-400', quiz: 'bg-purple-400/10 text-purple-400', project: 'bg-green-400/10 text-green-400', announcement: 'bg-amber-400/10 text-amber-400', other: 'bg-slate-600/30 text-slate-400' }
+const typeColors = { assignment: 'bg-emerald-400/10 text-emerald-400', exam: 'bg-red-400/10 text-red-400', quiz: 'bg-purple-400/10 text-purple-400', project: 'bg-green-400/10 text-green-400', announcement: 'bg-emerald-400/10 text-emerald-400', other: 'bg-slate-600/30 text-slate-400' }
 const statusIcons = { pending: <Clock size={14} />, in_progress: <AlertCircle size={14} />, completed: <CheckCircle size={14} />, overdue: <AlertCircle size={14} /> }
-const statusColors = { pending: 'text-amber-400', in_progress: 'text-blue-400', completed: 'text-emerald-400', overdue: 'text-red-400' }
-const classroomStatusColors = { submitted: 'text-emerald-400', graded: 'text-green-400', missing: 'text-red-400', assigned: 'text-blue-400', 'no due date': 'text-slate-400' }
+const statusColors = { pending: 'text-emerald-400', in_progress: 'text-emerald-400', completed: 'text-emerald-400', overdue: 'text-red-400' }
+const classroomStatusColors = { submitted: 'text-emerald-400', graded: 'text-emerald-400', missing: 'text-red-400', assigned: 'text-emerald-400', 'no due date': 'text-slate-400' }
 
 function AssignmentModal({ onClose, onSave }) {
   const [form, setForm] = useState({ title: '', subject: '', task_type: 'assignment', description: '', deadline: '', priority: 'medium' })
@@ -308,7 +308,7 @@ export default function AssignmentsPage() {
                       <td className="px-4 py-3">
                         {a.ai_metadata?.time_estimate ? (
                           <div className="flex items-center gap-2">
-                            <Clock size={14} className="text-amber-400" />
+                            <Clock size={14} className="text-emerald-400" />
                             <span className="text-sm text-slate-300">
                               {a.ai_metadata.time_estimate.estimated_hours}h
                             </span>
@@ -413,7 +413,7 @@ export default function AssignmentsPage() {
                           <td className="px-4 py-3">
                             {te ? (
                               <div className="flex items-center gap-1.5">
-                                <Clock size={13} className="text-amber-400" />
+                                <Clock size={13} className="text-emerald-400" />
                                 <span className="text-sm text-slate-300">{te.estimated_hours}h</span>
                                 <span className="text-xs text-slate-500">({te.complexity})</span>
                               </div>

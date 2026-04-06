@@ -26,6 +26,7 @@ from app.api.dashboard import router as dashboard_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     if settings.DEBUG:
         async with engine.begin() as conn:
@@ -38,9 +39,14 @@ async def lifespan(app: FastAPI):
     await _seed_demo_user()
     from app.scheduler import start_scheduler, stop_scheduler
     start_scheduler()
-    yield
-    stop_scheduler()
-    await engine.dispose()
+    try:
+        yield
+    except asyncio.CancelledError:
+        # Suppress starlette/uvicorn shutdown race — not an application error
+        pass
+    finally:
+        stop_scheduler()
+        await engine.dispose()
 
 
 async def _seed_demo_user():

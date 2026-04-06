@@ -75,11 +75,11 @@ export default function MorningCheckin({ data }) {
   const totalMarked = data.marked + localMarked.length;
 
   return (
-    <div className="relative overflow-hidden bg-gradient-to-r from-amber-400/10 via-orange-400/10 to-amber-400/10 backdrop-blur-md border border-amber-400/30 rounded-2xl p-5 mb-6">
-      <div className="absolute inset-0 bg-gradient-to-r from-amber-400/5 to-orange-400/5 blur-2xl" />
+    <div className="relative overflow-hidden bg-gradient-to-r from-emerald-400/10 via-teal-400/10 to-emerald-400/10 backdrop-blur-md border border-emerald-400/30 rounded-2xl p-5 mb-6">
+      <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/5 to-teal-400/5 blur-2xl" />
 
       <div className="relative flex items-start gap-4">
-        <div className="flex-shrink-0 w-11 h-11 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-400/20">
+        <div className="flex-shrink-0 w-11 h-11 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-400/20">
           <Sun size={22} className="text-slate-900" />
         </div>
 
@@ -89,7 +89,7 @@ export default function MorningCheckin({ data }) {
             {!allMarked && (
               <button
                 onClick={handleMarkAllPresent}
-                className="text-xs font-semibold px-3 py-1.5 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 hover:text-amber-200 transition-colors rounded-full flex items-center gap-1.5 border border-amber-500/20"
+                className="text-xs font-semibold px-3 py-1.5 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 hover:text-emerald-200 transition-colors rounded-full flex items-center gap-1.5 border border-emerald-500/20"
               >
                 <Check size={14} />
                 Mark all Present
@@ -97,7 +97,7 @@ export default function MorningCheckin({ data }) {
             )}
           </div>
           
-          <p className="text-amber-100/80 text-sm mb-4">
+          <p className="text-emerald-100/80 text-sm mb-4">
             You have {data.total} class{data.total !== 1 ? 'es' : ''} today • {totalMarked}/{data.total} marked
           </p>
 
@@ -110,7 +110,7 @@ export default function MorningCheckin({ data }) {
                 <div key={`${cls.subject_id}-${cls.start_time}`} className="flex flex-col p-3 bg-slate-900/40 backdrop-blur-sm rounded-lg border border-slate-800/50 hover:border-slate-700/50 transition-colors">
                   <div className="flex items-center gap-3">
                     {isProcessing ? (
-                      <Loader2 size={18} className="text-amber-400 animate-spin" />
+                      <Loader2 size={18} className="text-emerald-400 animate-spin" />
                     ) : isMarked ? (
                       <CheckCircle size={18} className="text-emerald-400" />
                     ) : (
@@ -140,7 +140,7 @@ export default function MorningCheckin({ data }) {
                       </button>
                       <button 
                         onClick={() => handleMark(cls.subject_id, 'late')}
-                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 transition-colors border border-amber-500/20"
+                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors border border-emerald-500/20"
                       >
                         Late
                       </button>

@@ -12,8 +12,8 @@ export default function AssignmentDayCell({ day, assignments, isCurrentMonth, is
     const getPriorityColor = (priority) => {
         const colors = {
             high: 'bg-red-400',
-            medium: 'bg-amber-400',
-            low: 'bg-blue-400'
+            medium: 'bg-emerald-400',
+            low: 'bg-emerald-500'
         };
         return colors[priority] || 'bg-slate-600';
     };
@@ -28,9 +28,9 @@ export default function AssignmentDayCell({ day, assignments, isCurrentMonth, is
         if (assignment.sourceType === 'document') return 'bg-purple-400';
         if (assignment.sourceType === 'classroom') {
             if (assignment.classroomSubmissionStatus === 'submitted') return 'bg-emerald-400';
-            if (assignment.classroomSubmissionStatus === 'late_submit') return 'bg-amber-400';
+            if (assignment.classroomSubmissionStatus === 'late_submit') return 'bg-emerald-600';
             if (assignment.classroomSubmissionStatus === 'missing') return 'bg-rose-400';
-            return 'bg-cyan-400';
+            return 'bg-emerald-400';
         }
         return getStatusColor(assignment.status) || getPriorityColor(assignment.priority);
     };
@@ -48,13 +48,13 @@ export default function AssignmentDayCell({ day, assignments, isCurrentMonth, is
             className={`min-h-[80px] sm:min-h-[100px] p-1.5 sm:p-2.5 rounded-xl border transition-all duration-300 ${isCurrentMonth
                     ? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/80 hover:border-slate-600 shadow-sm'
                     : 'bg-slate-900/40 border-transparent opacity-20'
-                } ${isToday ? 'ring-2 ring-amber-400/40 bg-slate-800/80 border-amber-400/20 shadow-[0_0_15px_rgba(251,191,36,0.1)]' : ''}`}
+                } ${isToday ? 'ring-2 ring-emerald-400/40 bg-slate-800/80 border-emerald-400/20 shadow-[0_0_15px_rgba(52,211,153,0.1)]' : ''}`}
         >
             {/* Day Number */}
             <div className="flex items-center justify-between mb-2">
                 <span
                     className={`text-[13px] font-bold ${isToday
-                            ? 'text-amber-400'
+                            ? 'text-emerald-400'
                             : isCurrentMonth
                                 ? 'text-slate-400'
                                 : 'text-slate-600'
@@ -73,7 +73,7 @@ export default function AssignmentDayCell({ day, assignments, isCurrentMonth, is
             <div className="space-y-1">
                 {isCurrentMonth && sortedAssignments.slice(0, 3).map((assignment) => {
                     const statusColor = assignment.sourceType === 'document' ? '' : getStatusColor(assignment.status);
-                    const priorityColor = assignment.sourceType === 'document' ? 'bg-purple-400' : assignment.sourceType === 'classroom' ? 'bg-cyan-400' : getPriorityColor(assignment.priority);
+                    const priorityColor = assignment.sourceType === 'document' ? 'bg-purple-400' : assignment.sourceType === 'classroom' ? 'bg-emerald-400' : getPriorityColor(assignment.priority);
                     const typeColor = getTypeColor(assignment);
 
                     return (

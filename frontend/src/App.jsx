@@ -19,6 +19,7 @@ const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const UploadPage = lazy(() => import('./pages/UploadPage'))
 const CollegeEventsPage = lazy(() => import('./pages/events/CollegeEventsPage'))
 const ClassroomDashboardPage = lazy(() => import('./pages/classroom/ClassroomDashboardPage'))
+const CourseMaterialsPage = lazy(() => import('./pages/classroom/CourseMaterialsPage'))
 const ChatBotPage = lazy(() => import('./pages/ChatBotPage'))
 
 const pageTransition = {
@@ -103,6 +104,7 @@ export default function App() {
             <Route path="timetable" element={<ErrorBoundary><motion.div {...pageTransition} key="timetable"><TimetableSetupPage /></motion.div></ErrorBoundary>} />
             <Route path="events" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="events"><CollegeEventsPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="classroom" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="classroom"><ClassroomDashboardPage /></motion.div></Suspense></ErrorBoundary>} />
+            <Route path="classroom/materials" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="classroom-materials"><CourseMaterialsPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="documents" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="documents"><UploadPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="upload" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="upload"><UploadPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="chat" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="chat"><ChatBotPage /></motion.div></Suspense></ErrorBoundary>} />

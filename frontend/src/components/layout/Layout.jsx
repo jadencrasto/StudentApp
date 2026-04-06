@@ -5,7 +5,7 @@ import { FallingPattern } from '../ui/falling-pattern'
 import { useClassNotifications } from '../../hooks/useClassNotifications'
 import {
   LayoutDashboard, BookOpen, CalendarCheck, Trophy,
-  Upload, LogOut, GraduationCap, Bell, Grid3X3, Newspaper, School, MessageSquare
+  Upload, LogOut, GraduationCap, Bell, Grid3X3, Newspaper, School, MessageSquare, FileText
 } from 'lucide-react'
 
 const NAV = [
@@ -14,9 +14,10 @@ const NAV = [
   { to: '/dashboard/attendance',   icon: CalendarCheck,    label: 'Attendance' },
   { to: '/dashboard/activities',   icon: Trophy,           label: 'Activities' },
   { to: '/dashboard/timetable',    icon: Grid3X3,          label: 'Timetable' },
-  { to: '/dashboard/events',       icon: Newspaper,        label: 'College Events' },
-  { to: '/dashboard/classroom',    icon: School,           label: 'Classroom' },
-  { to: '/dashboard/upload',       icon: Upload,           label: 'Upload Doc' },
+  { to: '/dashboard/events',              icon: Newspaper,  label: 'College Events' },
+  { to: '/dashboard/classroom',           icon: School,     label: 'Classroom' },
+  { to: '/dashboard/classroom/materials', icon: FileText,   label: 'Course Materials' },
+  { to: '/dashboard/upload',              icon: Upload,     label: 'Upload Doc' },
   { to: '/dashboard/chat',         icon: MessageSquare,    label: 'AI Chatbot' },
 ]
 

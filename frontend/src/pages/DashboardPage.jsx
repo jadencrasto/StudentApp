@@ -65,7 +65,7 @@ function StatCard({ title, value, sub, accent, icon: Icon, index = 0 }) {
 }
 
 function AlertItem({ alert, onRead }) {
-  const colors = { critical: 'border-red-400/30 bg-red-400/5 text-red-400', warning: 'border-amber-500/30 bg-amber-500/5 text-amber-400', info: 'border-blue-400/30 bg-blue-400/5 text-blue-400' }
+  const colors = { critical: 'border-red-400/30 bg-red-400/5 text-red-400', warning: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400', info: 'border-blue-400/30 bg-blue-400/5 text-blue-400' }
   return (
     <motion.div
       layout

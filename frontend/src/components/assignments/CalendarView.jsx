@@ -61,7 +61,7 @@ export default function CalendarView({ assignments, onAssignmentClick, onStatusC
                     </button>
                     <button
                         onClick={() => setCurrentMonth(new Date())}
-                        className="px-3 py-1.5 text-xs font-semibold text-amber-400 hover:bg-amber-400/10 rounded-lg transition-colors border border-amber-400/20"
+                        className="px-3 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors border border-emerald-400/20"
                     >
                         Today
                     </button>
@@ -111,11 +111,11 @@ export default function CalendarView({ assignments, onAssignmentClick, onStatusC
                     <span className="text-slate-500">High Priority</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.3)]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.3)]" />
                     <span className="text-slate-500">Medium</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.3)]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
                     <span className="text-slate-500">Low</span>
                 </div>
                 <div className="flex items-center gap-2">

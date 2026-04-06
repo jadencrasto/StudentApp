@@ -23,7 +23,7 @@ export function SubjectCard({ summary, onMark, onViewHistory, onViewRecovery, on
     // Determine color theme based on percentage
     const getTheme = (pct) => {
         if (pct >= 85) return { colorClass: "bg-emerald-500", textClass: "text-emerald-500", borderClass: "border-emerald-500/30" };
-        if (pct >= 75) return { colorClass: "bg-amber-500", textClass: "text-amber-500", borderClass: "border-amber-500/30" };
+        if (pct >= 75) return { colorClass: "bg-emerald-500", textClass: "text-emerald-500", borderClass: "border-emerald-500/30" };
         return { colorClass: "bg-rose-500", textClass: "text-rose-500", borderClass: "border-rose-500/30" };
     };
 
@@ -81,9 +81,9 @@ export function SubjectCard({ summary, onMark, onViewHistory, onViewRecovery, on
                         </p>
                     </div>
                 ) : (
-                    <div className="flex gap-2.5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/10">
-                        <Info size={16} className="text-amber-500 shrink-0 mt-0.5" />
-                        <p className="text-xs text-amber-200 leading-relaxed">
+                    <div className="flex gap-2.5 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                        <Info size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+                        <p className="text-xs text-emerald-200 leading-relaxed">
                             Watch out. You are close to the 75% limit. Avoid missing more classes.
                         </p>
                     </div>
@@ -108,7 +108,7 @@ export function SubjectCard({ summary, onMark, onViewHistory, onViewRecovery, on
 
                     <button
                         onClick={() => onEditSubject?.(summary)}
-                        className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-amber-400 hover:text-amber-300 hover:bg-amber-400/10 rounded-xl transition-all"
+                        className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 rounded-xl transition-all"
                     >
                         <Pencil size={13} /> Edit
                     </button>

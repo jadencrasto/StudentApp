@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLocation } from 'react-router-dom'
+import { FileText, Link as LinkIcon, Youtube, FileQuestion, Calendar, ExternalLink } from 'lucide-react'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 
@@ -337,13 +338,13 @@ export default function ClassroomDashboardPage() {
                               href={att.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-700/60 text-emerald-300 text-xs rounded hover:bg-slate-600/80 transition-colors"
+                              className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-700/60 text-emerald-400 text-xs rounded hover:bg-slate-600/80 transition-colors"
                               title={att.title}
                             >
-                              {att.type === 'drive' && '📄'}
-                              {att.type === 'youtube' && '▶️'}
-                              {att.type === 'link' && '🔗'}
-                              {att.type === 'form' && '📝'}
+                              {att.type === 'drive' && <FileText size={14} />}
+                              {att.type === 'youtube' && <Youtube size={14} />}
+                              {att.type === 'link' && <LinkIcon size={14} />}
+                              {att.type === 'form' && <FileQuestion size={14} />}
                               <span className="max-w-[120px] truncate">{att.title}</span>
                             </a>
                           ))}
@@ -383,7 +384,7 @@ export default function ClassroomDashboardPage() {
                     href={mat.alternate_link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-shrink-0 px-3 py-1.5 bg-amber-400/10 text-amber-300 text-xs font-medium rounded-lg hover:bg-amber-400/20 transition-colors"
+                    className="flex-shrink-0 px-3 py-1.5 bg-emerald-400/10 text-emerald-300 text-xs font-medium rounded-lg hover:bg-emerald-400/20 transition-colors"
                   >
                     Open
                   </a>
@@ -397,13 +398,13 @@ export default function ClassroomDashboardPage() {
                       href={att.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-700/60 text-amber-300 text-xs rounded-lg hover:bg-slate-600/80 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-700/60 text-emerald-300 text-xs rounded-lg hover:bg-slate-600/80 transition-colors"
                       title={att.title}
                     >
-                      {att.type === 'drive' && '📄'}
-                      {att.type === 'youtube' && '▶️'}
-                      {att.type === 'link' && '🔗'}
-                      {att.type === 'form' && '📝'}
+                      {att.type === 'drive' && <FileText size={14} />}
+                      {att.type === 'youtube' && <Youtube size={14} />}
+                      {att.type === 'link' && <LinkIcon size={14} />}
+                      {att.type === 'form' && <FileQuestion size={14} />}
                       <span className="max-w-[180px] truncate">{att.title}</span>
                     </a>
                   ))}
