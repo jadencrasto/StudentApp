@@ -105,17 +105,22 @@ class SubjectOut(BaseModel):
 class AttendanceMarkRequest(BaseModel):
     subject_id: UUID
     timetable_entry_id: Optional[UUID] = None
-    class_date: date = Field(validation_alias=AliasChoices('class_date', 'date'))
-    status:     str  # present | absent | late | excused
-    notes:      Optional[str] = None
+    class_date:   date = Field(validation_alias=AliasChoices('class_date', 'date'))
+    start_time:   Optional[str] = None   # "HH:MM" — slot identifier for duplicate-subject fix
+    end_time:     Optional[str] = None   # informational only
+    status:       str  # present | absent | late | excused
+    notes:        Optional[str] = None
+    marked_at:    Optional[datetime] = None  # client-side timestamp of the click
 
 class AttendanceRecordOut(BaseModel):
-    id:          UUID
-    subject_id:  UUID
-    class_date:  date
-    status:      str
-    notes:       Optional[str]
-    created_at:  datetime
+    id:               UUID
+    subject_id:       UUID
+    class_date:       date
+    status:           str
+    class_start_time: Optional[str] = None
+    marked_at:        Optional[datetime] = None
+    notes:            Optional[str]
+    created_at:       datetime
 
     model_config = {"from_attributes": True}
 
@@ -169,12 +174,14 @@ class TimetableUploadOut(BaseModel):
 
 
 class MorningCheckinClass(BaseModel):
-    subject_id: UUID
-    subject_name: str
-    start_time: str
-    end_time: str
-    room: Optional[str] = None
-    is_marked: bool
+    subject_id:    UUID
+    subject_name:  str
+    start_time:    str
+    end_time:      str
+    room:          Optional[str] = None
+    is_marked:     bool
+    marked_at:     Optional[str] = None   # ISO timestamp set when student marked
+    marked_status: Optional[str] = None   # present | absent | late | excused
 
 
 class MorningCheckinOut(BaseModel):

@@ -65,7 +65,12 @@ async def mark_attendance(
     If a record already exists for that date, it is updated (upsert).
     """
     record = await attendance_service.mark_attendance(current_user.id, data, db)
-    return {"id": str(record.id), "status": record.status, "class_date": str(record.class_date)}
+    return {
+        "id":         str(record.id),
+        "status":     record.status,
+        "class_date": str(record.class_date),
+        "marked_at":  record.marked_at.isoformat() if record.marked_at else None,
+    }
 
 
 # ─── Summary ─────────────────────────────────────────────────

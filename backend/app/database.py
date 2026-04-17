@@ -96,6 +96,66 @@ async def ensure_notification_columns() -> None:
             except Exception:
                 pass  # column already exists
 
+
+async def ensure_attendance_slot_columns() -> None:
+    """
+    Idempotent startup migration for attendance_records:
+
+    1. Adds class_start_time VARCHAR(10)  — "HH:MM" slot key for per-slot upsert.
+    2. Adds marked_at DATETIME            — client-side click timestamp.
+    3. Drops the old uq_attendance_per_day index (per day, not per slot) so that
+       two lectures of the same subject on the same day can each have their own row.
+    4. Creates uq_attendance_per_slot (per day + slot).
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
+    async with engine.begin() as conn:
+        # ── Step 1: add new columns ───────────────────────────────────────────
+        for stmt in [
+            "ALTER TABLE attendance_records ADD COLUMN class_start_time VARCHAR(10)",
+            "ALTER TABLE attendance_records ADD COLUMN marked_at DATETIME",
+        ]:
+            try:
+                await conn.exec_driver_sql(stmt)
+            except Exception:
+                pass  # column already exists — that's fine
+
+        # ── Step 2: fix the unique constraint ────────────────────────────────
+        if settings.DATABASE_URL.startswith("sqlite"):
+            # SQLite: drop the old named index (created by SQLAlchemy from the
+            # UniqueConstraint name="uq_attendance_per_day").
+            # Named indexes ARE droppable; sqlite_autoindex_* are not.
+            try:
+                await conn.exec_driver_sql(
+                    "DROP INDEX IF EXISTS uq_attendance_per_day"
+                )
+            except Exception as exc:
+                _log.warning("Could not drop uq_attendance_per_day: %s", exc)
+
+            # Create the new per-slot index (IF NOT EXISTS = idempotent).
+            try:
+                await conn.exec_driver_sql(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_per_slot "
+                    "ON attendance_records (user_id, subject_id, class_date, class_start_time)"
+                )
+            except Exception as exc:
+                _log.warning("Could not create uq_attendance_per_slot: %s", exc)
+        else:
+            # PostgreSQL supports proper ALTER TABLE constraint DDL.
+            for stmt in [
+                "ALTER TABLE attendance_records DROP CONSTRAINT IF EXISTS uq_attendance_per_day",
+                (
+                    "ALTER TABLE attendance_records "
+                    "ADD CONSTRAINT uq_attendance_per_slot "
+                    "UNIQUE (user_id, subject_id, class_date, class_start_time)"
+                ),
+            ]:
+                try:
+                    await conn.exec_driver_sql(stmt)
+                except Exception:
+                    pass
+
 # Session factory
 AsyncSessionLocal = async_sessionmaker(
     engine,

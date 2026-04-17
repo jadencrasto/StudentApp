@@ -59,6 +59,8 @@ async def delete_subject(user_id: UUID, subject_id: UUID, db: AsyncSession) -> N
 async def mark_attendance(
     user_id: UUID, data: AttendanceMarkRequest, db: AsyncSession
 ) -> AttendanceRecord:
+    from datetime import datetime as _dt, timezone as _tz
+
     # Verify subject belongs to user
     result = await db.execute(
         select(Subject).where(
@@ -69,33 +71,75 @@ async def mark_attendance(
     if not subject:
         raise HTTPException(status_code=404, detail="Subject not found")
 
-    # Upsert — update if record for this date already exists
-    existing = await db.execute(
+    # Normalise slot string: keep only "HH:MM" (drop seconds if present)
+    slot: str | None = None
+    if data.start_time:
+        slot = str(data.start_time).strip()[:5]
+
+    # Resolve marked_at: prefer client-supplied timestamp, fall back to server UTC
+    marked_ts = data.marked_at if data.marked_at else _dt.now(_tz.utc)
+
+    # ── Phase 1: exact slot match ──────────────────────────────────────────
+    # Finds a record created with the same (subject, date, slot).
+    existing_slot = await db.execute(
         select(AttendanceRecord).where(
             and_(
-                AttendanceRecord.user_id == user_id,
-                AttendanceRecord.subject_id == data.subject_id,
-                AttendanceRecord.class_date == data.class_date,
+                AttendanceRecord.user_id      == user_id,
+                AttendanceRecord.subject_id   == data.subject_id,
+                AttendanceRecord.class_date   == data.class_date,
+                AttendanceRecord.class_start_time == slot,
             )
         )
     )
-    record = existing.scalar_one_or_none()
+    record = existing_slot.scalar_one_or_none()
 
     if record:
-        record.status = AttendanceStatus(data.status)
-        record.notes = data.notes
-    else:
-        record = AttendanceRecord(
-            user_id=user_id,
-            subject_id=data.subject_id,
-            class_date=data.class_date,
-            status=AttendanceStatus(data.status),
-            notes=data.notes,
-        )
-        db.add(record)
-        # Increment total_classes on the subject
-        subject.total_classes += 1
+        # Update the existing slot record
+        record.status    = AttendanceStatus(data.status)
+        record.notes     = data.notes
+        record.marked_at = marked_ts
+        await db.flush()
+        return record
 
+    # ── Phase 2: legacy NULL-slot fallback ────────────────────────────────
+    # Old records (created before class_start_time was added) have slot = NULL.
+    # If one exists for this (subject, date), UPDATE it and set the slot so it
+    # won't conflict with new per-slot records going forward.
+    existing_legacy = await db.execute(
+        select(AttendanceRecord).where(
+            and_(
+                AttendanceRecord.user_id      == user_id,
+                AttendanceRecord.subject_id   == data.subject_id,
+                AttendanceRecord.class_date   == data.class_date,
+                AttendanceRecord.class_start_time.is_(None),
+            )
+        )
+    )
+    record = existing_legacy.scalar_one_or_none()
+
+    if record:
+        # Upgrade the legacy row to a slot-aware row
+        record.status            = AttendanceStatus(data.status)
+        record.notes             = data.notes
+        record.marked_at         = marked_ts
+        record.class_start_time  = slot   # promotes NULL → "HH:MM"
+        await db.flush()
+        return record
+
+    # ── Phase 3: fresh insert ─────────────────────────────────────────────
+    # No existing record — create a new one.  The new per-slot unique index
+    # (uq_attendance_per_slot) enforces uniqueness on (user, subject, date, slot).
+    record = AttendanceRecord(
+        user_id          = user_id,
+        subject_id       = data.subject_id,
+        class_date       = data.class_date,
+        class_start_time = slot,
+        status           = AttendanceStatus(data.status),
+        marked_at        = marked_ts,
+        notes            = data.notes,
+    )
+    db.add(record)
+    subject.total_classes += 1
     await db.flush()
     return record
 

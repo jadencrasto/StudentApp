@@ -237,33 +237,55 @@ async def get_morning_checkin(user_id: UUID, db: AsyncSession) -> dict:
     )
     classes = result.all()
 
+    # Load all attendance records for today keyed by (subject_id, class_start_time)
+    # so duplicate subjects at different times are tracked independently.
     marked_result = await db.execute(
-        select(AttendanceRecord.subject_id).where(
+        select(AttendanceRecord).where(
             and_(
                 AttendanceRecord.user_id == user_id,
                 AttendanceRecord.class_date == today_date,
             )
         )
     )
-    marked_ids = {subject_id for (subject_id,) in marked_result.all()}
+    today_records = marked_result.scalars().all()
+
+    # Build two-tier lookup map so both new slot-specific records and legacy
+    # NULL-slot records (from before the fix) are resolved correctly.
+    #
+    #   slot_map[(subject_id_str, "HH:MM")] → record  ← exact slot match
+    #   null_map[subject_id_str]             → record  ← fallback for old data
+    slot_map: dict = {}
+    null_map: dict = {}
+    for rec in today_records:
+        sid = str(rec.subject_id)
+        if rec.class_start_time:
+            slot_map[(sid, rec.class_start_time)] = rec
+        else:
+            null_map[sid] = rec   # legacy record — no slot info
 
     payload_classes = []
     for entry, subject in classes:
+        slot_str = entry.start_time.strftime("%H:%M")
+        sid      = str(subject.id)
+        # Prefer exact slot match; fall back to legacy NULL record
+        rec = slot_map.get((sid, slot_str)) or null_map.get(sid)
         payload_classes.append({
-            "subject_id": entry.subject_id,
-            "subject_name": subject.name,
-            "start_time": entry.start_time.strftime("%H:%M"),
-            "end_time": entry.end_time.strftime("%H:%M"),
-            "room": entry.room,
-            "is_marked": entry.subject_id in marked_ids,
+            "subject_id":    entry.subject_id,
+            "subject_name":  subject.name,
+            "start_time":    slot_str,
+            "end_time":      entry.end_time.strftime("%H:%M"),
+            "room":          entry.room,
+            "is_marked":     rec is not None,
+            "marked_at":     rec.marked_at.isoformat() if rec and rec.marked_at else None,
+            "marked_status": rec.status.value if rec else None,
         })
 
     marked_count = len([c for c in payload_classes if c["is_marked"]])
     return {
-        "type": "morning_checkin",
+        "type":    "morning_checkin",
         "classes": payload_classes,
-        "total": len(payload_classes),
-        "marked": marked_count,
+        "total":   len(payload_classes),
+        "marked":  marked_count,
     }
 
 

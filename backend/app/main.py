@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.database import engine, Base, ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column, ensure_activity_recurrence_columns, ensure_notification_columns
+from app.database import engine, Base, ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column, ensure_activity_recurrence_columns, ensure_notification_columns, ensure_attendance_slot_columns
 from app.models import *  # noqa
 
 from app.api.auth        import router as auth_router
@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
     await ensure_assignment_classroom_id_column()
     await ensure_activity_recurrence_columns()
     await ensure_notification_columns()
+    await ensure_attendance_slot_columns()   # Bug-1/2: class_start_time + marked_at
     # Seed demo user for development
     await _seed_demo_user()
     from app.scheduler import start_scheduler, stop_scheduler
