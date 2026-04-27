@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -14,9 +16,15 @@ class Settings(BaseSettings):
     # OCR
     TESSERACT_CMD: str = "tesseract"
 
-    # Gemini AI (deprecated)
+    # Gemini AI
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    GOOGLE_APPLICATION_CREDENTIALS: str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+
+    # Google Custom Search API (fallback for JS-heavy college sites)
+    # Get a free key + CX at https://programmablesearch.google.com (100 queries/day free)
+    GOOGLE_SEARCH_API_KEY: str = ""
+    GOOGLE_SEARCH_CX: str = ""  # Custom Search Engine ID
 
     # Ollama (local AI)
     OLLAMA_BASE_URL: str = "http://localhost:11434"

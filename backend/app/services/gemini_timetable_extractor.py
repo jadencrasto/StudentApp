@@ -7,8 +7,8 @@ from typing import Dict, List
 
 import anyio
 from google import genai
-from google.genai import types
 from PIL import Image
+from google.genai import types
 
 from app.config import settings
 
@@ -66,6 +66,118 @@ class GeminiTimetableExtractor:
             raise RuntimeError("GEMINI_API_KEY is not configured")
         self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
         self.model_name = settings.GEMINI_MODEL
+
+        # Configure pytesseract binary path from settings so Windows installs
+        # work even when Tesseract is not on the system PATH.
+        tesseract_cmd = getattr(settings, "TESSERACT_CMD", None)
+        if tesseract_cmd and os.path.isfile(tesseract_cmd):
+            import pytesseract
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+            logger.debug("Tesseract configured at: %s", tesseract_cmd)
+        elif tesseract_cmd:
+            logger.warning(
+                "TESSERACT_CMD is set to %r but the file was not found. "
+                "OCR fallback may fail.",
+                tesseract_cmd,
+            )
+
+    async def extract_from_image(self, file_bytes: bytes) -> Dict:
+        """Extract timetable from raw image bytes (PNG/JPEG).
+
+        Sends the image directly to Gemini Vision as base64 without writing to disk.
+        Returns the same dict structure as extract_from_file.
+        """
+        try:
+            payload = await anyio.to_thread.run_sync(
+                lambda: self._extract_bytes_sync(file_bytes)
+            )
+            if "error" in payload:
+                return {"status": "failed", "error": payload["error"], "confidence": 0.0}
+
+            processed_entries = self._post_process_entries(payload.get("entries") or [])
+            return {
+                "status": "success",
+                "layout_type": payload.get("layout_type", "horizontal"),
+                "entries": processed_entries,
+                "confidence": float(payload.get("confidence", 0.0) or 0.0),
+                "notes": payload.get("notes", ""),
+            }
+        except Exception as exc:
+            if self._is_quota_error(exc):
+                retry_seconds = self._extract_retry_delay_seconds(exc)
+                if retry_seconds > 0:
+                    logger.warning("Gemini quota/rate-limit hit. Retrying after %ss", retry_seconds)
+                    await anyio.sleep(retry_seconds)
+                    try:
+                        payload = await anyio.to_thread.run_sync(
+                            lambda: self._extract_bytes_sync(file_bytes)
+                        )
+                        processed_entries = self._post_process_entries(payload.get("entries") or [])
+                        if processed_entries:
+                            return {
+                                "status": "success",
+                                "layout_type": payload.get("layout_type", "horizontal"),
+                                "entries": processed_entries,
+                                "confidence": float(payload.get("confidence", 0.0) or 0.0),
+                                "notes": payload.get("notes", ""),
+                            }
+                    except Exception:
+                        pass
+
+                logger.warning("Gemini quota exceeded. Falling back to OCR parser.")
+                try:
+                    import pytesseract
+                    image = Image.open(io.BytesIO(file_bytes))
+                    text = pytesseract.image_to_string(image, config="--psm 6")
+                    entries = self._parse_day_time_lines(text)
+                    if not entries:
+                        entries = self._parse_grid_rows(text)
+                    processed_entries = self._post_process_entries(entries)
+                    if processed_entries:
+                        return {
+                            "status": "success",
+                            "layout_type": "unknown",
+                            "entries": processed_entries,
+                            "confidence": 0.45,
+                            "notes": "Gemini quota exceeded; OCR fallback used",
+                        }
+                except Exception as fallback_exc:
+                    fallback_msg = str(fallback_exc).lower()
+                    if "tesseract" in fallback_msg and "not found" in fallback_msg:
+                        return {
+                            "status": "failed",
+                            "error": "Gemini quota exceeded and OCR fallback is unavailable because Tesseract is not installed.",
+                            "confidence": 0.0,
+                        }
+                    return {
+                        "status": "failed",
+                        "error": f"Gemini quota exceeded and OCR fallback failed: {fallback_exc}",
+                        "confidence": 0.0,
+                    }
+            logger.exception("Gemini timetable extraction (bytes) failed")
+            return {"status": "failed", "error": str(exc), "confidence": 0.0}
+
+    def _extract_bytes_sync(self, file_bytes: bytes) -> Dict:
+        """Synchronous Gemini Vision call using raw image bytes."""
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=EXTRACTION_PROMPT),
+                        types.Part.from_bytes(data=file_bytes, mime_type="image/png"),
+                    ],
+                )
+            ],
+        )
+        result_text = (getattr(response, "text", "") or "").strip()
+        if not result_text:
+            raise RuntimeError("Empty response from Gemini")
+        parsed = self._parse_json(result_text)
+        if not isinstance(parsed, dict):
+            raise RuntimeError("Gemini did not return valid JSON")
+        return parsed
 
     async def extract_from_file(self, file_path: str) -> Dict:
         try:

@@ -84,10 +84,10 @@ export default function MorningCheckin({ data }) {
       await api.post('/attendance/mark', {
         subject_id: cls.subject_id,
         start_time: cls.start_time,
-        end_time:   cls.end_time,
-        date:       todayDate,
+        end_time: cls.end_time,
+        date: todayDate,
         status,
-        marked_at:  markedAt,
+        marked_at: markedAt,
       });
       setLocalMarked((prev) => ({
         ...prev,
@@ -115,10 +115,10 @@ export default function MorningCheckin({ data }) {
         .post('/attendance/mark', {
           subject_id: g.subject_id,
           start_time: g.start_time,
-          end_time:   g.end_time,
-          date:       todayDate,
-          status:     'present',
-          marked_at:  markedAt,
+          end_time: g.end_time,
+          date: todayDate,
+          status: 'present',
+          marked_at: markedAt,
         })
         .then(() => ({ key: slotKey(g.subject_id, g.start_time), markedAt }))
     );
@@ -127,7 +127,7 @@ export default function MorningCheckin({ data }) {
       .promise(Promise.all(promises), {
         loading: 'Marking all remaining as present…',
         success: 'All set! Attendance marked.',
-        error:   'Failed to mark all attendance.',
+        error: 'Failed to mark all attendance.',
       })
       .then((results) => {
         setLocalMarked((prev) => {
@@ -163,7 +163,6 @@ export default function MorningCheckin({ data }) {
 
             {/* Empty-state card */}
             <div className="flex flex-col items-center gap-3 py-6 px-4 bg-slate-900/40 backdrop-blur-sm rounded-lg border border-slate-800/50 text-center">
-              <span className="text-3xl">☀️</span>
               <div>
                 <p className="text-white font-medium text-sm">No classes today</p>
                 <p className="text-emerald-300 text-sm mt-0.5">Enjoy your day off!</p>
@@ -214,11 +213,11 @@ export default function MorningCheckin({ data }) {
 
           <div className="space-y-3">
             {groupedClasses.map((cls) => {
-              const key          = slotKey(cls.subject_id, cls.start_time);
+              const key = slotKey(cls.subject_id, cls.start_time);
               const isProcessing = markingId === key;
-              const isMarked     = isClassMarked(cls);
-              const markedAt     = getMarkedAt(cls);
-              const markedTime   = fmtTime(markedAt);
+              const isMarked = isClassMarked(cls);
+              const markedAt = getMarkedAt(cls);
+              const markedTime = fmtTime(markedAt);
 
               return (
                 <div
