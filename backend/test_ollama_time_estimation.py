@@ -3,7 +3,9 @@ Test assignment time estimation with Ollama integration.
 """
 import asyncio
 import sys
-sys.path.insert(0, r"D:\HACKATHON\JACE FAMILY\sais-complete10\sais-complete\sais\backend")
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.services.time_estimator import estimate_assignment_time
 
