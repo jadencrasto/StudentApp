@@ -46,3 +46,8 @@ google-api-python-client>=2.149.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
 cryptography>=43.0.1
+
+# Testing (dev)
+pytest>=8.2.0
+pytest-asyncio>=0.23.0
+# httpx is already listed above — also used by tests via httpx.ASGITransport
