@@ -1,3 +1,10 @@
+# =============================================================================
+# ASSIGNMENT SERVICE
+# =============================================================================
+# This service handles all assignment-related operations in the SAIS system.
+# It provides functions to create, read, update, delete assignments and
+# also handles syncing assignments from Google Classroom.
+# =============================================================================
 from uuid import UUID
 from datetime import date
 from fastapi import HTTPException
@@ -10,6 +17,7 @@ from app.schemas.schemas import AssignmentCreate, AssignmentUpdate
 from app.services.time_estimator import estimate_assignment_time
 
 async def create_assignment(user_id: UUID, data: AssignmentCreate, db: AsyncSession) -> Assignment:
+    """Create a new manual assignment in the database."""
     assignment = Assignment(
         user_id=user_id,
         title=data.title,
@@ -26,13 +34,25 @@ async def create_assignment(user_id: UUID, data: AssignmentCreate, db: AsyncSess
     await db.refresh(assignment)
     return assignment
 
-
+# =============================================================================
+# GET ASSIGNMENTS
+# =============================================================================
+# Step 5 — Send to frontend
+# Retrieves assignments with optional filtering by status and subject
+# =============================================================================
 async def get_assignments(
     user_id: UUID,
     db: AsyncSession,
     status: str | None = None,
     subject: str | None = None,
 ) -> list[Assignment]:
+    """Get all assignments for a user with optional status/subject filtering.
+    
+    Step 6 — Student filters
+    → Dropdown shows all course names automatically
+    → Student picks a course → frontend filters the list instantly
+    → Student clicks status tab → filters again instantly
+    """
     query = select(Assignment).where(Assignment.user_id == user_id)
 
     if status:
@@ -50,9 +70,11 @@ async def get_assignments(
     result = await db.execute(query)
     return list(result.scalars().all())
 
-
-
+# =============================================================================
+# GET ASSIGNMENT BY ID
+# =============================================================================
 async def get_assignment_by_id(user_id: UUID, assignment_id: UUID, db: AsyncSession) -> Assignment:
+    """Get a single assignment by ID for a user."""
     result = await db.execute(
         select(Assignment).where(
             and_(Assignment.id == assignment_id, Assignment.user_id == user_id)
@@ -67,6 +89,7 @@ async def get_assignment_by_id(user_id: UUID, assignment_id: UUID, db: AsyncSess
 async def update_assignment(
     user_id: UUID, assignment_id: UUID, data: AssignmentUpdate, db: AsyncSession
 ) -> Assignment:
+    """Update an existing assignment with new data."""
     assignment = await get_assignment_by_id(user_id, assignment_id, db)
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -75,7 +98,14 @@ async def update_assignment(
     return assignment
 
 
+# =============================================================================
+# DELETE ASSIGNMENT
+# =============================================================================
+# Step 4 — Save to database (delete from database)
+# Deletes an assignment from the database
+# =============================================================================
 async def delete_assignment(user_id: UUID, assignment_id: UUID, db: AsyncSession) -> None:
+    """Delete an assignment from the database."""
     assignment = await get_assignment_by_id(user_id, assignment_id, db)
     await db.delete(assignment)
     await db.flush()
@@ -106,7 +136,14 @@ async def get_upcoming_assignments(user_id: UUID, db: AsyncSession, days: int = 
     return list(result.scalars().all())
 
 
+# =============================================================================
+# CREATE ASSIGNMENT FROM DOCUMENT
+# =============================================================================
+# Step 4 & 5 — Save to database and send to frontend
+# Creates an assignment from an extracted document
+# =============================================================================
 async def create_assignment_from_document(user_id: UUID, document_id: UUID, db: AsyncSession) -> Assignment:
+    """Create an assignment from an extracted document (Step 4 - Save to database)."""
     result = await db.execute(
         select(Document).where(
             and_(Document.id == document_id, Document.user_id == user_id)
@@ -168,16 +205,16 @@ async def create_assignment_from_document(user_id: UUID, document_id: UUID, db: 
     return assignment
 
 
+# =============================================================================
+# SYNC CLASSROOM ASSIGNMENTS
+# =============================================================================
+# Step 3 & 4 — Process data and save to database
+# This is the core function that syncs Google Classroom assignments to SAIS
+# =============================================================================
 async def sync_classroom_assignments(
     user_id: UUID, events: list[dict], db: AsyncSession
 ) -> dict:
-    """
-    Upsert Google Classroom events into the assignments table.
 
-    - Matches on (user_id, classroom_id) to avoid duplicates.
-    - Creates new Assignment rows for unseen events.
-    - Updates existing rows when classroom data changes.
-    """
     from datetime import date as date_type
     import logging
 
@@ -205,7 +242,7 @@ async def sync_classroom_assignments(
         )
         existing = result.scalar_one_or_none()
 
-        # Map classroom workflow status → assignment status
+        # Map classroom workflow status → assignment status (Step 3 - Process data)
         workflow = event.get("workflow_status", "")
         sub_status = event.get("submission_status", "assigned")
         if workflow == "graded" or sub_status == "submitted":
@@ -221,7 +258,7 @@ async def sync_classroom_assignments(
             except (ValueError, TypeError):
                 pass
 
-        # Build a human-readable classroom status label
+        # Build a human-readable classroom status label (Step 3 - Process data)
         if workflow == "graded":
             classroom_label = "graded"
         elif sub_status == "submitted":
@@ -233,7 +270,6 @@ async def sync_classroom_assignments(
         else:
             classroom_label = "no due date"
 
-        # Classroom-specific metadata stored in ai_metadata
         classroom_meta = {
             "source": "google_classroom",
             "course": event.get("course"),

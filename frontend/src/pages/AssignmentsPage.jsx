@@ -18,6 +18,13 @@ const statusIcons = { pending: <Clock size={14} />, in_progress: <AlertCircle si
 const statusColors = { pending: 'text-emerald-400', in_progress: 'text-emerald-400', completed: 'text-emerald-400', overdue: 'text-red-400' }
 const classroomStatusColors = { submitted: 'text-emerald-400', graded: 'text-emerald-400', missing: 'text-red-400', assigned: 'text-emerald-400', 'no due date': 'text-slate-400' }
 
+// =============================================================================
+// ASSIGNMENT MODAL COMPONENT
+// =============================================================================
+// Step 1 — User clicks "New Assignment" button
+//   → Modal opens for user to enter assignment details
+//   → On save, calls createAssignment API
+// =============================================================================
 function AssignmentModal({ onClose, onSave }) {
   const [form, setForm] = useState({ title: '', subject: '', task_type: 'assignment', description: '', deadline: '', priority: 'medium' })
   const [saving, setSaving] = useState(false)
@@ -76,6 +83,17 @@ function AssignmentModal({ onClose, onSave }) {
   )
 }
 
+// =============================================================================
+// MAIN ASSIGNMENTS PAGE COMPONENT
+// =============================================================================
+// Step 1 — User loads page or clicks "Sync"
+//   → Loads local assignments + triggers classroom sync in background
+//
+// Step 5 & 6 — Send to frontend and student filters
+//   → Displays assignments as cards/table
+//   → Student can filter by status (All, pending, in_progress, completed, overdue)
+//   → All filtering done in browser, no extra API calls
+// =============================================================================
 export default function AssignmentsPage() {
   const navigate = useNavigate()
   const [assignments, setAssignments] = useState([])
@@ -89,6 +107,10 @@ export default function AssignmentsPage() {
   const [estimatingId, setEstimatingId] = useState(null)
   const [loading, setLoading] = useState(true)
 
+// LOAD FUNCTION
+// Step 1 — User loads page
+//   → 1. Load local assignments + documents immediately (fast)
+//   → 2. Trigger classroom sync in background (fire-and-forget)
   async function load() {
     setLoading(true)
     try {
@@ -122,10 +144,12 @@ export default function AssignmentsPage() {
 
   useEffect(() => { load() }, [filter])
 
+  // Handle create new assignment
   async function handleCreate(form) {
     await createAssignment(form); load(); toast.success('Assignment created!')
   }
 
+  // Handle re-estimate time for an assignment
   async function handleReestimate(id) {
     setEstimatingId(id)
     try {
@@ -136,6 +160,7 @@ export default function AssignmentsPage() {
     finally { setEstimatingId(null) }
   }
 
+  // Handle re-process a document
   async function handleReprocess(docId) {
     setReprocessingId(docId)
     try {
@@ -145,17 +170,20 @@ export default function AssignmentsPage() {
     } catch { toast.error('Re-process failed'); setReprocessingId(null) }
   }
 
+  // Handle status change for an assignment
   async function handleStatusChange(id, status) {
     await updateAssignment(id, { status }).catch(() => toast.error('Update failed'))
     load()
   }
 
+  // Handle delete assignment
   async function handleDelete(id) {
     if (!confirm('Delete this assignment?')) return
     await deleteAssignment(id).catch(() => toast.error('Delete failed'))
     load(); toast.success('Deleted')
   }
 
+  // Document calendar items (from extracted documents)
   const documentCalendarItems = documents
     .map((doc) => {
       const extracted = doc.extracted_data || {}
@@ -176,6 +204,7 @@ export default function AssignmentsPage() {
     })
     .filter(Boolean)
 
+  // Classroom calendar items (from Google Classroom events)
   const classroomCalendarItems = classroomEvents
     .filter((event) => event?.type === 'Assignment')
     .map((event, idx) => ({

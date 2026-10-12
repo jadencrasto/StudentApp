@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +16,13 @@ from app.classroom.oauth import get_valid_access_token
 _user_calls: dict[str, list[datetime]] = defaultdict(list)
 
 
+# =============================================================================
+# RATE LIMITING
+# =============================================================================
+# Prevents too many API calls to Google Classroom
+# =============================================================================
 def _rate_limit(user_id: str, limit: int = 60, per_seconds: int = 60):
+    """Rate limiting to prevent hitting Google API limits."""
     now = datetime.utcnow()
     window_start = now - timedelta(seconds=per_seconds)
     _user_calls[user_id] = [t for t in _user_calls[user_id] if t >= window_start]
@@ -24,7 +31,19 @@ def _rate_limit(user_id: str, limit: int = 60, per_seconds: int = 60):
     _user_calls[user_id].append(now)
 
 
+# =============================================================================
+# GET CLASSROOM CLIENT
+# =============================================================================
+# Step 2 — Backend talks to Google
+# Creates an authenticated Google Classroom client for the user
+# =============================================================================
 async def _get_classroom_client(db: AsyncSession, user_id: UUID) -> tuple[ClassroomClient, str]:
+    """Get an authenticated Google Classroom client for the user.
+    
+    Step 2 — Backend talks to Google:
+    → Uses user's stored Google token to authenticate
+    → Returns a client that can make API calls to Google
+    """
     _rate_limit(str(user_id))
     from sqlalchemy import select
     from app.classroom.security import decrypt_secret
@@ -55,8 +74,8 @@ async def get_courses(db: AsyncSession, user_id: UUID) -> list[dict]:
     classroom_client, _ = await _get_classroom_client(db, user_id)
     return await asyncio.to_thread(classroom_client.get_courses)
 
-
 async def get_events(db: AsyncSession, user_id: UUID) -> list[dict]:
+
     import logging
     log = logging.getLogger(__name__)
     try:
@@ -91,7 +110,7 @@ async def get_events(db: AsyncSession, user_id: UUID) -> list[dict]:
                     submission_status = "submitted"
                 else:
                     submission_status = "assigned"
-
+                #adds assignment from gc to events list
                 events.append(
                     {
                         "classroom_id": item.get("google_assignment_id"),
@@ -145,8 +164,14 @@ async def get_events(db: AsyncSession, user_id: UUID) -> list[dict]:
         return []
 
 
+# =============================================================================
+# GET MATERIALS
+# =============================================================================
+# Step 2 — Backend talks to Google
+# Gets all course materials (documents, drive files, links) from all courses
+# =============================================================================
 async def get_materials(db: AsyncSession, user_id: UUID) -> list[dict]:
-    """Fetch course materials (documents/resources) from all courses."""
+    """Fetch course materials (documents/resources) from all courses (Step 2 - Ask Google)."""
     import logging
     log = logging.getLogger(__name__)
     try:
@@ -188,6 +213,12 @@ async def get_materials(db: AsyncSession, user_id: UUID) -> list[dict]:
         return []
 
 
+# =============================================================================
+# SYNC ALL (Combined Sync)
+# =============================================================================
+# Step 1, 2, 3, 4 — Full sync in one request
+# Gets courses, events (assignments), and materials in one efficient call
+# =============================================================================
 async def sync_all(db: AsyncSession, user_id: UUID) -> dict:
     try:
         import logging

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="SAIS logo favicon">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2f855a" />
+      <stop offset="100%" stop-color="#48bb78" />
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="#071014" />
+  <path d="M42 98 128 58l86 40-86 40L42 98Z" fill="url(#grad)" stroke="#9ae6b4" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M128 98v68" stroke="#9ae6b4" stroke-width="14" stroke-linecap="round"/>
+  <path d="M178 136c0 27.6-22.4 50-50 50s-50-22.4-50-50 22.4-50 50-50 50 22.4 50 50Z" fill="none" stroke="#9ae6b4" stroke-width="12"/>
+  <text x="128" y="198" text-anchor="middle" font-family="DM Sans, Arial, sans-serif" font-size="72" font-weight="700" fill="#e2f8de">SA</text>
+</svg>

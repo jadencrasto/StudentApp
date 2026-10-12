@@ -21,9 +21,15 @@ oauth_router = APIRouter(tags=["Google OAuth"])
 
 router = APIRouter(tags=["Classroom"])
 
-
+# =============================================================================
+# DEBUG ENDPOINT
+# =============================================================================
+# Step 1 — User visits /auth/google/debug-config (optional debug)
+#   → Returns debug info about Google OAuth configuration
+# =============================================================================
 @oauth_router.get("/auth/google/debug-config")
 async def google_debug_config():
+    """Debug endpoint to check Google OAuth configuration status."""
     client_id = settings.GOOGLE_CLIENT_ID or ""
     return {
         "debug": settings.DEBUG,
@@ -34,11 +40,23 @@ async def google_debug_config():
     }
 
 
+# =============================================================================
+# OAUTH CONNECT FLOW
+# =============================================================================
+# Step 1 — User clicks "Connect Google" on frontend
+#   → Frontend calls /auth/google/connect with user token
+#   → Backend generates Google OAuth URL and redirects user to Google
+# Step 2 — User authorizes on Google
+#   → Google redirects back to /auth/google/callback with auth code
+# Step 3 — Backend exchanges code for tokens
+#   → Stores access/refresh tokens in database
+# =============================================================================
 @oauth_router.get("/auth/google/connect")
 async def google_connect(
     token: str = Query(..., min_length=20),
     db: AsyncSession = Depends(get_db),
 ):
+    """Initiate Google OAuth flow - redirect user to Google login page."""
     payload = decode_access_token(token)
     if not payload or not payload.get("sub"):
         raise HTTPException(status_code=401, detail="Invalid auth token")
@@ -63,11 +81,18 @@ async def google_callback(
     state: str,
     db: AsyncSession = Depends(get_db),
 ):
+    """Handle Google OAuth callback - exchange auth code for tokens."""
     await exchange_code_and_store(db, code, state)
     # Redirect to whichever frontend port is active
     frontend_url = settings.ALLOWED_ORIGINS.split(",")[0].strip()
     return RedirectResponse(url=f"{frontend_url}/dashboard/classroom?connected=1")
 
+
+# =============================================================================
+# CLASSROOM API ENDPOINTS
+# =============================================================================
+# These endpoints are called by the frontend to sync classroom data
+# =============================================================================
 
 @router.get("/classroom/courses")
 async def classroom_courses(
@@ -108,12 +133,6 @@ async def classroom_sync(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Combined sync: fetch courses, events, and materials in one request.
-
-    Returns { courses: [...], events: [...], materials: [...] }
-    This is faster than calling /courses, /events, /materials separately because
-    it only fetches the course list once and avoids redundant Google API calls.
-    """
     data = await sync_all(db, current_user.id)
     # Auto-sync classroom assignments into the assignments table
     try:
