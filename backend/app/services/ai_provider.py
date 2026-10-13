@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, Callable, Dict, Optional, TypeVar
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 import anyio
 from google import genai
@@ -31,6 +31,57 @@ class AIConfigError(AIProviderError):
 class AIServiceUnavailableError(AIProviderError):
     """Service error indicating timeout, rate-limiting, or temporary server unreachability."""
     pass
+
+
+def _extract_google_error_info(exc: Exception) -> tuple[int | None, str | None, str]:
+    """
+    Extract (http_status_code, google_status, google_message) from an exception.
+    Ensures API keys and user message content are NEVER leaked into logs.
+    """
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    status = getattr(exc, "status", None)
+    message = getattr(exc, "message", None) or str(exc)
+
+    resp_json = getattr(exc, "response_json", None)
+    if isinstance(resp_json, dict) and "error" in resp_json:
+        err_obj = resp_json["error"]
+        if code is None and "code" in err_obj:
+            code = err_obj["code"]
+        if status is None and "status" in err_obj:
+            status = err_obj["status"]
+        if not getattr(exc, "message", None) and "message" in err_obj:
+            message = err_obj["message"]
+
+    if code is None:
+        m = re.search(r"\b(400|401|403|404|429|500|502|503|504)\b", str(exc))
+        if m:
+            code = int(m.group(1))
+
+    if status is None:
+        known_statuses = [
+            "INVALID_ARGUMENT",
+            "PERMISSION_DENIED",
+            "NOT_FOUND",
+            "RESOURCE_EXHAUSTED",
+            "UNAVAILABLE",
+            "INTERNAL",
+            "FAILED_PRECONDITION",
+        ]
+        for ks in known_statuses:
+            if ks in str(exc):
+                status = ks
+                break
+
+    # Strip any potential API key strings (e.g. AIza... or AQ....)
+    clean_msg = re.sub(r"(AIza[0-9A-Za-z-_]{20,}|AQ\.[0-9A-Za-z-_]{20,})", "[REDACTED_KEY]", str(message))
+    for k in (
+        getattr(settings, "GEMINI_API_KEY_CHAT", None),
+        getattr(settings, "GEMINI_API_KEY_TIMETABLE", None),
+        getattr(settings, "GEMINI_API_KEY", None),
+    ):
+        if k and str(k).strip():
+            clean_msg = clean_msg.replace(str(k).strip(), "[REDACTED_KEY]")
+    return code, status, clean_msg
 
 
 class AIProvider:
@@ -66,19 +117,22 @@ class AIProvider:
         key = self.get_chat_api_key()
         return genai.Client(api_key=key)
 
-    def _is_retryable_error(self, exc: Exception) -> bool:
-        """Check if error is a 429 (rate/quota limit) or 503 (service unavailable) error."""
-        code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-        if code in (429, 503, 500, 502, 504):
+    def _is_retryable_error(self, code: int | None, status: str | None, exc: Exception) -> bool:
+        """Retry ONLY on 429 and 503. Explicitly never retry on 400, 401, 403, 404."""
+        if code in (400, 401, 403, 404):
+            return False
+        if code in (429, 503):
             return True
         exc_str = str(exc).lower()
-        retry_keywords = ["429", "503", "resource_exhausted", "unavailable", "high demand", "overloaded", "quota"]
-        return any(k in exc_str for k in retry_keywords)
+        if any(k in exc_str for k in ("429", "503", "unavailable", "high demand", "resource_exhausted")):
+            return True
+        return False
 
     async def _execute_with_retry_and_timeout(self, sync_func: Callable[[], T]) -> T:
         """
-        Execute sync AI function in thread with ~30s timeout and a single retry on 429/503.
-        Never logs API keys or message contents.
+        Execute sync AI function in thread with ~30s timeout.
+        Retries once ONLY on 429/503.
+        Logs status code, Google status, and Google error message without leaking keys/messages.
         """
         attempts = 2
         for attempt in range(1, attempts + 1):
@@ -96,12 +150,34 @@ class AIProvider:
             except AIConfigError:
                 raise
             except Exception as exc:
-                if self._is_retryable_error(exc) and attempt < attempts:
-                    logger.warning("Transient AI error (%s) on attempt %d. Retrying once...", type(exc).__name__, attempt)
+                code, status, msg = _extract_google_error_info(exc)
+                logger.warning(
+                    "Gemini API error (attempt %d/%d): HTTP %s | status: %s | message: %s",
+                    attempt,
+                    attempts,
+                    code,
+                    status,
+                    msg,
+                )
+
+                if self._is_retryable_error(code, status, exc) and attempt < attempts:
+                    logger.warning("Transient AI error (HTTP %s, status=%s). Retrying once...", code, status)
                     await asyncio.sleep(1.5)
                     continue
-                logger.warning("AI provider call failed: %s", type(exc).__name__)
-                raise AIServiceUnavailableError("The AI service is temporarily unavailable or over quota.") from exc
+
+                # Non-retryable or retries exhausted: Map to appropriate friendly error
+                if code == 400 or status == "INVALID_ARGUMENT":
+                    raise AIServiceUnavailableError(f"Invalid request to AI service: {msg}")
+                elif code in (401, 403) or status == "PERMISSION_DENIED":
+                    raise AIConfigError("Gemini API key is invalid or lacks permissions. Please check GEMINI_API_KEY_CHAT.")
+                elif code == 404 or status == "NOT_FOUND":
+                    raise AIConfigError(f"Gemini model is not available. Please verify GEMINI_MODEL in .env.")
+                elif code == 429 or status == "RESOURCE_EXHAUSTED":
+                    raise AIServiceUnavailableError("AI service quota reached or rate-limited. Please try again later.")
+                elif code == 503 or status == "UNAVAILABLE":
+                    raise AIServiceUnavailableError("The AI service is temporarily unavailable. Please try again in a few moments.")
+                else:
+                    raise AIServiceUnavailableError("The AI service is temporarily unavailable.") from exc
 
     async def _execute_async_with_retry_and_timeout(self, async_func: Callable[[], Any]) -> Any:
         """
@@ -123,30 +199,151 @@ class AIProvider:
             except AIConfigError:
                 raise
             except Exception as exc:
-                if self._is_retryable_error(exc) and attempt < attempts:
-                    logger.warning("Transient async AI error (%s) on attempt %d. Retrying once...", type(exc).__name__, attempt)
+                code, status, msg = _extract_google_error_info(exc)
+                logger.warning(
+                    "Async AI API error (attempt %d/%d): HTTP %s | status: %s | message: %s",
+                    attempt,
+                    attempts,
+                    code,
+                    status,
+                    msg,
+                )
+                if self._is_retryable_error(code, status, exc) and attempt < attempts:
+                    logger.warning("Transient async AI error (HTTP %s). Retrying once...", code)
                     await asyncio.sleep(1.5)
                     continue
-                logger.warning("Async AI provider call failed: %s", type(exc).__name__)
+                if code in (401, 403):
+                    raise AIConfigError("AI credentials invalid or unauthorized.")
                 raise AIServiceUnavailableError("The AI service is temporarily unavailable or over quota.") from exc
 
     # -------------------------------------------------------------------------
-    # Text Generation (Chat & Viva)
+    # Multiturn Chat Generation
+    # -------------------------------------------------------------------------
+
+    def build_gemini_contents(self, messages: List[Dict[str, str]]) -> List[types.Content]:
+        """
+        Build well-formed types.Content objects complying with Gemini multi-turn specs:
+        - Roles mapped strictly to 'user' and 'model'
+        - Empty messages stripped and omitted
+        - Adjacent turns of identical roles merged
+        - Turn 1 guaranteed to be 'user'
+        - Final turn guaranteed to be 'user'
+        """
+        contents: List[types.Content] = []
+        for m in messages:
+            text = (m.get("content") or "").strip()
+            if not text:
+                continue
+            raw_role = (m.get("role") or "").lower()
+            role = "user" if raw_role in ("user", "student") else "model"
+
+            # Merge adjacent identical roles to preserve turn alternation
+            if contents and contents[-1].role == role:
+                prev_text = contents[-1].parts[0].text
+                contents[-1] = types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=f"{prev_text}\n\n{text}")],
+                )
+            else:
+                contents.append(
+                    types.Content(
+                        role=role,
+                        parts=[types.Part.from_text(text=text)],
+                    )
+                )
+
+        if not contents:
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text="Hello")]))
+
+        # Gemini requires first turn to be 'user'
+        if contents[0].role == "model":
+            contents.insert(0, types.Content(role="user", parts=[types.Part.from_text(text="Start session")]))
+
+        # Gemini requires the final turn to be 'user' (awaiting model response)
+        if contents[-1].role != "user":
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text="Please continue.")]))
+
+        return contents
+
+    async def generate_chat(
+        self,
+        messages: List[Dict[str, str]],
+        system_instruction: str | None = None,
+    ) -> str:
+        """Generate assistant reply from structured multi-turn conversation messages."""
+        if self.provider == "ollama":
+            return await self._generate_chat_ollama(messages, system_instruction)
+        return await self._generate_chat_gemini(messages, system_instruction)
+
+    async def _generate_chat_gemini(
+        self,
+        messages: List[Dict[str, str]],
+        system_instruction: str | None = None,
+    ) -> str:
+        gemini_contents = self.build_gemini_contents(messages)
+
+        def _call() -> str:
+            client = self._get_gemini_client()
+            model = self.model_name
+            config = types.GenerateContentConfig()
+            if system_instruction and system_instruction.strip():
+                config.system_instruction = system_instruction.strip()
+
+            response = client.models.generate_content(
+                model=model,
+                contents=gemini_contents,
+                config=config,
+            )
+            if not response or not response.text or not response.text.strip():
+                raise AIServiceUnavailableError("Empty response received from AI model.")
+            return response.text.strip()
+
+        return await self._execute_with_retry_and_timeout(_call)
+
+    async def _generate_chat_ollama(
+        self,
+        messages: List[Dict[str, str]],
+        system_instruction: str | None = None,
+    ) -> str:
+        parts: List[str] = []
+        if system_instruction:
+            parts.append(f"[System]\n{system_instruction}")
+        for m in messages:
+            role_label = "Student" if m.get("role") == "user" else "SAIS"
+            text = (m.get("content") or "").strip()
+            if text:
+                parts.append(f"\n[{role_label}]\n{text}")
+        parts.append("\n[SAIS]\n")
+        full_prompt = "\n".join(parts)
+
+        async def _call() -> str:
+            text = await self.ollama_client.generate(full_prompt)
+            if not text or not text.strip():
+                raise AIServiceUnavailableError("Empty response received from Ollama.")
+            return text.strip()
+
+        return await self._execute_async_with_retry_and_timeout(_call)
+
+    # -------------------------------------------------------------------------
+    # Single Prompt Text Generation
     # -------------------------------------------------------------------------
 
     async def generate_text(self, prompt: str, system_instruction: str | None = None) -> str:
-        """Generate text using configured AI provider (Gemini or Ollama)."""
+        """Generate text from a single prompt string."""
+        safe_prompt = (prompt or "").strip()
+        if not safe_prompt:
+            raise AIServiceUnavailableError("Prompt cannot be empty.")
         if self.provider == "ollama":
-            return await self._generate_text_ollama(prompt, system_instruction)
-        return await self._generate_text_gemini(prompt, system_instruction)
+            return await self._generate_text_ollama(safe_prompt, system_instruction)
+        return await self._generate_text_gemini(safe_prompt, system_instruction)
 
     async def _generate_text_gemini(self, prompt: str, system_instruction: str | None = None) -> str:
         def _call() -> str:
             client = self._get_gemini_client()
             model = self.model_name
             config = types.GenerateContentConfig()
-            if system_instruction:
-                config.system_instruction = system_instruction
+            if system_instruction and system_instruction.strip():
+                config.system_instruction = system_instruction.strip()
 
             response = client.models.generate_content(
                 model=model,

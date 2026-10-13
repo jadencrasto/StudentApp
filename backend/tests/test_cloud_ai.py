@@ -8,6 +8,8 @@ Covers:
 - Assignment creation background time estimation updates ai_metadata
 - Per-user limit returns 429
 - Missing API key gives friendly message / error without crash or key leakage
+- Gemini multiturn request formatting (roles, alternating turns, empty messages)
+- Error logging and non-retry on 400/403/404 vs retry on 429/503
 """
 import json
 from unittest.mock import MagicMock, patch
@@ -18,6 +20,7 @@ from app.config import settings
 from app.services.ai_provider import (
     AIConfigError,
     AIServiceUnavailableError,
+    _extract_google_error_info,
     ai_provider,
 )
 from app.services.rate_limiter import ai_rate_limiter
@@ -38,7 +41,6 @@ class TestCloudAIChat:
 
     async def test_chat_reply_works(self, client: AsyncClient, auth_headers: dict):
         """Test chat reply works with mocked Gemini returning text."""
-        # 1. Create a conversation
         conv_resp = await client.post(
             "/api/v1/chat/conversations",
             json={"mode": "general", "title": "Test General Chat"},
@@ -47,7 +49,6 @@ class TestCloudAIChat:
         assert conv_resp.status_code == 201
         conv_id = conv_resp.json()["id"]
 
-        # 2. Mock Gemini response
         mock_response = MagicMock()
         mock_response.text = "Hello! I am your SAIS academic assistant powered by Gemini."
 
@@ -68,7 +69,6 @@ class TestCloudAIChat:
         assert "Gemini" in data["content"]
         assert "id" in data
 
-        # 3. Verify conversation messages persisted
         detail_resp = await client.get(
             f"/api/v1/chat/conversations/{conv_id}",
             headers=auth_headers,
@@ -78,6 +78,24 @@ class TestCloudAIChat:
         assert len(messages) == 2
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "assistant"
+
+    async def test_empty_chat_message_rejected(self, client: AsyncClient, auth_headers: dict):
+        """Test sending an empty or whitespace message is rejected."""
+        conv_resp = await client.post(
+            "/api/v1/chat/conversations",
+            json={"mode": "general", "title": "Empty Msg Chat"},
+            headers=auth_headers,
+        )
+        assert conv_resp.status_code == 201
+        conv_id = conv_resp.json()["id"]
+
+        resp = await client.post(
+            f"/api/v1/chat/conversations/{conv_id}/messages",
+            json={"message": "   "},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+        assert "cannot be empty" in resp.json()["detail"].lower()
 
     async def test_ai_failure_gives_friendly_503(self, client: AsyncClient, auth_headers: dict):
         """Test AI failure (503 / 429 / server error) produces HTTP 503 with friendly message."""
@@ -89,7 +107,6 @@ class TestCloudAIChat:
         assert conv_resp.status_code == 201
         conv_id = conv_resp.json()["id"]
 
-        # Mock Gemini failing with a 503 error
         with patch("google.genai.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.models.generate_content.side_effect = Exception("503 UNAVAILABLE: High demand")
@@ -149,7 +166,6 @@ class TestRateLimiter:
         mock_response = MagicMock()
         mock_response.text = "Mocked AI answer."
 
-        # Temporarily set rate limit to 2 for this test
         orig_limit = settings.AI_RATE_LIMIT_PER_HOUR
         try:
             settings.AI_RATE_LIMIT_PER_HOUR = 2
@@ -277,7 +293,6 @@ class TestTimeEstimation:
         assert resp.status_code == 201
         assignment_id = resp.json()["id"]
 
-        # Fetch the created assignment
         get_resp = await client.get(
             f"/api/v1/assignments/{assignment_id}",
             headers=auth_headers,
@@ -285,7 +300,6 @@ class TestTimeEstimation:
         assert get_resp.status_code == 200
         data = get_resp.json()
         ai_meta = data.get("ai_metadata") or {}
-        # Background task ran and populated time_estimate
         assert "time_estimate" in ai_meta
         assert ai_meta["time_estimate"]["estimated_minutes"] == 120
 
@@ -321,3 +335,164 @@ class TestTimetableAndEventsKeys:
         finally:
             settings.GEMINI_API_KEY_TIMETABLE = orig_tt_key
             settings.GEMINI_API_KEY = orig_key
+
+
+class TestGeminiMultiTurnFormatting:
+
+    def test_roles_mapping(self):
+        """Ensure roles are mapped strictly to 'user' and 'model'."""
+        msgs = [
+            {"role": "user", "content": "Question 1"},
+            {"role": "assistant", "content": "Answer 1"},
+            {"role": "user", "content": "Question 2"},
+        ]
+        contents = ai_provider.build_gemini_contents(msgs)
+        assert len(contents) == 3
+        assert contents[0].role == "user"
+        assert contents[1].role == "model"
+        assert contents[2].role == "user"
+
+    def test_merge_consecutive_same_role_turns(self):
+        """Gemini requires turns to alternate; consecutive turns must be merged."""
+        msgs = [
+            {"role": "user", "content": "Part A"},
+            {"role": "user", "content": "Part B"},
+            {"role": "assistant", "content": "Reply 1"},
+            {"role": "assistant", "content": "Reply 2"},
+            {"role": "user", "content": "Follow-up"},
+        ]
+        contents = ai_provider.build_gemini_contents(msgs)
+        assert len(contents) == 3
+        assert contents[0].role == "user"
+        assert "Part A\n\nPart B" in contents[0].parts[0].text
+        assert contents[1].role == "model"
+        assert "Reply 1\n\nReply 2" in contents[1].parts[0].text
+        assert contents[2].role == "user"
+
+    def test_first_turn_must_be_user(self):
+        """When history starts with model (e.g. viva greeting), insert initial user turn."""
+        msgs = [
+            {"role": "assistant", "content": "Welcome to the viva examination. Q1: What is a process?"},
+            {"role": "user", "content": "A program in execution."},
+        ]
+        contents = ai_provider.build_gemini_contents(msgs)
+        assert len(contents) == 3
+        assert contents[0].role == "user"
+        assert contents[1].role == "model"
+        assert contents[2].role == "user"
+
+    def test_last_turn_must_be_user(self):
+        """Ensure final turn is user awaiting model response."""
+        msgs = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there"},
+        ]
+        contents = ai_provider.build_gemini_contents(msgs)
+        assert contents[-1].role == "user"
+
+    def test_empty_messages_are_filtered(self):
+        """Empty messages or whitespace-only messages must be omitted."""
+        msgs = [
+            {"role": "user", "content": "   "},
+            {"role": "user", "content": "Valid user text"},
+            {"role": "assistant", "content": ""},
+            {"role": "assistant", "content": "Valid model text"},
+            {"role": "user", "content": "New question"},
+        ]
+        contents = ai_provider.build_gemini_contents(msgs)
+        assert len(contents) == 3
+        assert contents[0].parts[0].text == "Valid user text"
+        assert contents[1].parts[0].text == "Valid model text"
+        assert contents[2].parts[0].text == "New question"
+
+
+class TestErrorExtractionAndRetryPolicy:
+
+    def test_extract_google_error_info_and_redact_key(self):
+        """Verify extraction of error code, status, and redaction of keys."""
+        err = Exception("403 PERMISSION_DENIED. Key AIzaSyD1234567890123456789012345678901 is invalid")
+        code, status, msg = _extract_google_error_info(err)
+        assert code == 403
+        assert status == "PERMISSION_DENIED"
+        assert "AIzaSyD" not in msg
+        assert "[REDACTED_KEY]" in msg
+
+    @pytest.mark.asyncio
+    async def test_no_retry_on_400_invalid_argument(self):
+        """400 errors must not be retried and should raise AIServiceUnavailableError."""
+        call_count = 0
+
+        def _mock_call():
+            nonlocal call_count
+            call_count += 1
+            raise Exception("400 INVALID_ARGUMENT: Bad parameter")
+
+        with pytest.raises(AIServiceUnavailableError) as exc_info:
+            await ai_provider._execute_with_retry_and_timeout(_mock_call)
+
+        assert call_count == 1  # No retry
+        assert "invalid request" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_no_retry_on_403_permission_denied(self):
+        """403 errors must not be retried and should raise AIConfigError."""
+        call_count = 0
+
+        def _mock_call():
+            nonlocal call_count
+            call_count += 1
+            raise Exception("403 PERMISSION_DENIED: API key not authorized")
+
+        with pytest.raises(AIConfigError) as exc_info:
+            await ai_provider._execute_with_retry_and_timeout(_mock_call)
+
+        assert call_count == 1  # No retry
+        assert "invalid or lacks permissions" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_no_retry_on_404_not_found(self):
+        """404 errors must not be retried and should raise AIConfigError."""
+        call_count = 0
+
+        def _mock_call():
+            nonlocal call_count
+            call_count += 1
+            raise Exception("404 NOT_FOUND: Model models/gemini-2.0-flash is no longer available")
+
+        with pytest.raises(AIConfigError) as exc_info:
+            await ai_provider._execute_with_retry_and_timeout(_mock_call)
+
+        assert call_count == 1  # No retry
+        assert "not available" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_retry_on_429_resource_exhausted(self):
+        """429 errors should be retried once."""
+        call_count = 0
+
+        def _mock_call():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("429 RESOURCE_EXHAUSTED: Quota exceeded")
+            return "Recovered response"
+
+        res = await ai_provider._execute_with_retry_and_timeout(_mock_call)
+        assert call_count == 2
+        assert res == "Recovered response"
+
+    @pytest.mark.asyncio
+    async def test_retry_on_503_unavailable(self):
+        """503 errors should be retried once."""
+        call_count = 0
+
+        def _mock_call():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("503 UNAVAILABLE: High demand")
+            return "Recovered response"
+
+        res = await ai_provider._execute_with_retry_and_timeout(_mock_call)
+        assert call_count == 2
+        assert res == "Recovered response"
