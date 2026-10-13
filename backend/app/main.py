@@ -37,8 +37,9 @@ async def lifespan(app: FastAPI):
         await ensure_activity_recurrence_columns()
         await ensure_notification_columns()
         await ensure_attendance_slot_columns()
-    # Seed demo user for development
-    await _seed_demo_user()
+    # Seed demo user for development only if explicitly enabled
+    if settings.SEED_DEMO_USER:
+        await _seed_demo_user()
     from app.scheduler import start_scheduler, stop_scheduler
     start_scheduler()
     try:
