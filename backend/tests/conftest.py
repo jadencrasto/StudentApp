@@ -27,7 +27,7 @@ from sqlalchemy.pool import StaticPool
 # We MUST do this BEFORE importing anything from app.* because app/config.py
 # evaluates `settings = get_settings()` at import time.
 
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")  # in-memory
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"  # in-memory SQLite for tests
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-ci-only-not-production")
 os.environ.setdefault("DEBUG", "true")
 

@@ -7,6 +7,7 @@ uvicorn[standard]>=0.29.0
 # Database
 sqlalchemy>=2.0.30
 aiosqlite>=0.20.0          # async SQLite driver (local dev fallback)
+asyncpg>=0.29.0            # async PostgreSQL driver (Supabase)
 alembic>=1.13.1            # database migrations
 
 # Authentication

@@ -28,14 +28,15 @@ from app.api.dashboard import router as dashboard_router
 async def lifespan(app: FastAPI):
     import asyncio
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    if settings.DEBUG:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-    await ensure_assignment_ai_metadata_column()
-    await ensure_assignment_classroom_id_column()
-    await ensure_activity_recurrence_columns()
-    await ensure_notification_columns()
-    await ensure_attendance_slot_columns()   # Bug-1/2: class_start_time + marked_at
+    if settings.DATABASE_URL.startswith("sqlite"):
+        if settings.DEBUG:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        await ensure_assignment_ai_metadata_column()
+        await ensure_assignment_classroom_id_column()
+        await ensure_activity_recurrence_columns()
+        await ensure_notification_columns()
+        await ensure_attendance_slot_columns()
     # Seed demo user for development
     await _seed_demo_user()
     from app.scheduler import start_scheduler, stop_scheduler

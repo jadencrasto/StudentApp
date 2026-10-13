@@ -21,8 +21,11 @@ ENV/
 *.db
 *.db-shm
 *.db-wal
+*.db.*
 *.sqlite
 *.sqlite3
+*.bak
+*.backup*
 
 # Environment & Secrets
 .env

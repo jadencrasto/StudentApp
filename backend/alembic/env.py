@@ -23,6 +23,10 @@ if config.config_file_name is not None:
 
 # Set the SQLAlchemy URL from app settings or environment override
 db_url = os.getenv("ALEMBIC_DATABASE_URL") or settings.DATABASE_URL
+if db_url.startswith("postgres://"):
+    db_url = "postgresql+asyncpg://" + db_url[len("postgres://"):]
+elif db_url.startswith("postgresql://"):
+    db_url = "postgresql+asyncpg://" + db_url[len("postgresql://"):]
 config.set_main_option("sqlalchemy.url", db_url)
 
 target_metadata = Base.metadata
@@ -31,12 +35,13 @@ target_metadata = Base.metadata
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
+    is_sqlite = url.startswith("sqlite")
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        render_as_batch=True,
+        render_as_batch=is_sqlite,
     )
 
     with context.begin_transaction():
@@ -45,10 +50,11 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
     """Run migrations using the active synchronous connection wrapped by async engine."""
+    is_sqlite = connection.dialect.name == "sqlite"
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
-        render_as_batch=True,
+        render_as_batch=is_sqlite,
     )
 
     with context.begin_transaction():
@@ -60,10 +66,16 @@ async def run_async_migrations() -> None:
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = db_url
 
+    engine_kwargs = {
+        "prefix": "sqlalchemy.",
+        "poolclass": pool.NullPool,
+    }
+    if not db_url.startswith("sqlite"):
+        engine_kwargs["connect_args"] = {"statement_cache_size": 0}
+
     connectable = async_engine_from_config(
         configuration,
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+        **engine_kwargs,
     )
 
     async with connectable.connect() as connection:
