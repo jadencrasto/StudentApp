@@ -4,9 +4,14 @@ Entry point. Run with: uvicorn app.main:app --reload
 """
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 from app.config import settings
+from app.core.rate_limiter import limiter
 from app.database import engine, Base, ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column, ensure_activity_recurrence_columns, ensure_notification_columns, ensure_attendance_slot_columns
 from app.models import *  # noqa
 
@@ -81,6 +86,18 @@ app = FastAPI(
     openapi_url="/openapi.json",
     redirect_slashes=False,
 )
+
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": f"Rate limit exceeded: {exc.detail}. Please slow down and try again later."},
+    )
+
 
 app.add_middleware(
     CORSMiddleware,
