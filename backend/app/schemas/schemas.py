@@ -40,14 +40,46 @@ class TokenResponse(BaseModel):
     token_type:   str = "bearer"
 
 
-class UserOut(BaseModel):
-    id:         UUID
-    email:      str
-    username:   str
-    full_name:  Optional[str]
-    created_at: datetime
+class InstitutionBriefOut(BaseModel):
+    id:       UUID
+    name:     str
+    type:     str
+    location: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class CohortBriefOut(BaseModel):
+    id:            UUID
+    name:          str
+    level_type:    str
+    level_value:   str
+    academic_year: str
+    department:    Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class UserOut(BaseModel):
+    id:                    UUID
+    email:                 str
+    username:              str
+    full_name:             Optional[str]
+    created_at:            datetime
+    role:                  str = "student"
+    must_change_password:  bool = False
+    onboarding_completed:  bool = False
+    education_level:       Optional[str] = None
+    grade_or_year:         Optional[str] = None
+    location:              Optional[str] = None
+    institution_name_text: Optional[str] = None
+    extra_info:            Optional[dict] = None
+    institution:           Optional[InstitutionBriefOut] = None
+    cohort:                Optional[CohortBriefOut] = None
+    join_request_status:   Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
 
 
 # ─── Assignment ───────────────────────────────────────────────
@@ -394,3 +426,127 @@ class ChatCreateRequest(BaseModel):
 class VivaStartRequest(BaseModel):
     document_id: UUID
     num_questions: int = Field(default=5, ge=1, le=20)
+
+
+# ─── Phase 5A: Institutions, Cohorts, and Join Requests ───────
+
+class InstitutionCreate(BaseModel):
+    name:     str = Field(min_length=1, max_length=255)
+    type:     str = Field(pattern="^(school|college)$")
+    location: Optional[str] = Field(default=None, max_length=255)
+
+
+class InstitutionOut(BaseModel):
+    id:         UUID
+    name:       str
+    type:       str
+    location:   Optional[str]
+    join_code:  str
+    is_active:  bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AdminUserCreate(BaseModel):
+    email:     EmailStr
+    username:  str = Field(min_length=3, max_length=100)
+    full_name: Optional[str] = None
+    password:  str = Field(min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        import re
+        if len(v.strip()) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not re.search(r"[A-Za-z]", v):
+            raise ValueError("Password must contain at least one letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one number")
+        return v
+
+
+class AdminUserOut(BaseModel):
+    id:                   UUID
+    email:                str
+    username:             str
+    full_name:            Optional[str]
+    role:                 str
+    institution_id:       Optional[UUID]
+    must_change_password: bool
+    created_at:           datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CohortCreate(BaseModel):
+    name:          str = Field(min_length=1, max_length=100)
+    level_type:    str = Field(pattern="^(grade|college_year)$")
+    level_value:   str = Field(min_length=1, max_length=50)
+    department:    Optional[str] = Field(default=None, max_length=100)
+    academic_year: str = Field(min_length=1, max_length=50)
+
+
+class CohortUpdate(BaseModel):
+    name:          Optional[str] = Field(default=None, min_length=1, max_length=100)
+    level_type:    Optional[str] = Field(default=None, pattern="^(grade|college_year)$")
+    level_value:   Optional[str] = Field(default=None, min_length=1, max_length=50)
+    department:    Optional[str] = Field(default=None, max_length=100)
+    academic_year: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    is_active:     Optional[bool] = None
+
+
+class CohortOut(BaseModel):
+    id:             UUID
+    institution_id: UUID
+    name:           str
+    level_type:     str
+    level_value:    str
+    department:     Optional[str]
+    academic_year:  str
+    is_active:      bool
+    created_at:     datetime
+
+    model_config = {"from_attributes": True}
+
+
+class JoinCodeSubmitRequest(BaseModel):
+    join_code:           str = Field(min_length=1, max_length=32)
+    requested_cohort_id: Optional[UUID] = None
+
+
+class JoinResponseOut(BaseModel):
+    status:  str
+    message: str
+
+
+class JoinRequestDecisionRequest(BaseModel):
+    action:    str = Field(pattern="^(approve|reject)$")
+    cohort_id: Optional[UUID] = None
+
+
+class JoinRequestOut(BaseModel):
+    id:                    UUID
+    user_id:               UUID
+    user_email:            Optional[str] = None
+    user_username:         Optional[str] = None
+    user_full_name:        Optional[str] = None
+    institution_id:        UUID
+    requested_cohort_id:   Optional[UUID] = None
+    requested_cohort_name: Optional[str] = None
+    status:                str
+    decided_by:            Optional[UUID] = None
+    decided_at:            Optional[datetime] = None
+    created_at:            datetime
+
+    model_config = {"from_attributes": True}
+
+
+class UserProfileUpdateRequest(BaseModel):
+    education_level:       Optional[str] = Field(default=None, pattern="^(school|college)$")
+    grade_or_year:         Optional[str] = Field(default=None, max_length=50)
+    location:              Optional[str] = Field(default=None, max_length=255)
+    institution_name_text: Optional[str] = Field(default=None, max_length=255)
+    extra_info:            Optional[dict] = None
+

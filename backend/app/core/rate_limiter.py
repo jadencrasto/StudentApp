@@ -67,3 +67,38 @@ class FailedLoginTracker:
 
 
 failed_login_tracker = FailedLoginTracker()
+
+
+class JoinAttemptTracker:
+    """
+    Sliding window tracker for join attempts per user (default 10 attempts per hour).
+    Prevents brute-forcing institution join codes.
+    """
+    def __init__(self):
+        self._attempts: dict[str, deque[float]] = defaultdict(deque)
+
+    def is_rate_limited(self, user_id: str, limit: int = 10, window_seconds: int = 3600) -> bool:
+        uid = str(user_id)
+        now = time.time()
+        history = self._attempts[uid]
+        while history and history[0] <= now - window_seconds:
+            history.popleft()
+        return len(history) >= limit
+
+    def record_attempt(self, user_id: str, window_seconds: int = 3600):
+        uid = str(user_id)
+        now = time.time()
+        history = self._attempts[uid]
+        while history and history[0] <= now - window_seconds:
+            history.popleft()
+        history.append(now)
+
+    def reset(self, user_id: str | None = None):
+        if user_id:
+            self._attempts.pop(str(user_id), None)
+        else:
+            self._attempts.clear()
+
+
+join_attempt_tracker = JoinAttemptTracker()
+
