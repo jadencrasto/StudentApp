@@ -42,9 +42,32 @@ export const api = client;
 
 // ── Grouped API objects (kept for backwards compatibility) ───────────────────
 export const authAPI = {
-  register: (data) => client.post('/auth/register', data),
-  login:    (data) => client.post('/auth/login', data),
-  me:       ()     => client.get('/auth/me'),
+  register:       (data) => client.post('/auth/register', data),
+  login:          (data) => client.post('/auth/login', data),
+  me:             ()     => client.get('/auth/me'),
+  changePassword: (data) => client.post('/auth/change-password', data),
+};
+
+export const institutionsAPI = {
+  // Super Admin
+  listInstitutions:       () => client.get('/super-admin/institutions'),
+  createInstitution:     (data) => client.post('/super-admin/institutions', data),
+  deactivateInstitution: (id) => client.patch(`/super-admin/institutions/${id}/deactivate`),
+  createAdmin:           (id, data) => client.post(`/super-admin/institutions/${id}/admins`, data),
+
+  // Institution Admin
+  listCohorts:           (params) => client.get('/admin/cohorts', { params }),
+  createCohort:          (data) => client.post('/admin/cohorts', data),
+  updateCohort:          (id, data) => client.patch(`/admin/cohorts/${id}`, data),
+  deactivateCohort:      (id) => client.patch(`/admin/cohorts/${id}/deactivate`),
+  regenerateJoinCode:    () => client.post('/admin/institution/regenerate-join-code'),
+  listJoinRequests:      (params) => client.get('/admin/join-requests', { params }),
+  decideJoinRequest:     (id, data) => client.post(`/admin/join-requests/${id}/decide`, data),
+};
+
+export const studentAPI = {
+  updateProfile: (data) => client.patch('/me/profile', data),
+  join:          (data) => client.post('/join', data),
 };
 
 export const assignmentsAPI = {

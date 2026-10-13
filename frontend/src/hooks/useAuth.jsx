@@ -43,10 +43,17 @@ export function AuthProvider({ children }) {
 
   const value = {
     user,
+    role: user?.role || 'student',
+    onboarding_completed: !!user?.onboarding_completed,
+    must_change_password: !!user?.must_change_password,
+    institution: user?.institution || null,
+    cohort: user?.cohort || null,
+    join_request_status: user?.join_request_status || null,
     loading,
     isAuthenticated: !!user,
     setToken,
     logout,
+    refreshUser: fetchUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
