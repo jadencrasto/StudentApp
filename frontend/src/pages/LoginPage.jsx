@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { GraduationCap, Mail, Lock, ArrowRight, ArrowLeft } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
-import { login } from '../api/auth';
+import { login, getMe } from '../api/auth';
 import { FallingPattern } from '../components/ui/falling-pattern';
 
 const ease = [0.4, 0, 0.2, 1];
@@ -24,9 +24,29 @@ export default function LoginPage() {
 
     try {
       const { data } = await login({ email: email.trim().toLowerCase(), password });
+      localStorage.setItem('sais_token', data.access_token);
+      
+      // Fetch user profile immediately to determine landing route
+      const { data: profile } = await getMe();
       setToken(data.access_token);
       toast.success('Welcome back!');
-      navigate('/dashboard');
+
+      if (profile.must_change_password) {
+        navigate('/change-password');
+      } else if (profile.role === 'super_admin') {
+        navigate('/super-admin');
+      } else if (profile.role === 'admin') {
+        navigate('/admin');
+      } else {
+        // Students: redirect to onboarding once per session if not completed
+        const alreadyRedirected = sessionStorage.getItem('onboarding_redirected');
+        if (!profile.onboarding_completed && !alreadyRedirected) {
+          sessionStorage.setItem('onboarding_redirected', 'true');
+          navigate('/onboarding');
+        } else {
+          navigate('/dashboard');
+        }
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Login failed. Please try again.');
       toast.error('Login failed');

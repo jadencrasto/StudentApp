@@ -63,8 +63,8 @@ export default function RegisterPage() {
       const { data } = await login({ email: normalizedEmail, password });
       setToken(data.access_token);
 
-      toast.success('Account created!');
-      navigate('/dashboard');
+      toast.success('Account created! Welcome to SAIS.');
+      navigate('/onboarding');
     } catch (err) {
       setError(err.response?.data?.detail || 'Registration failed');
       toast.error(err.response?.data?.detail || 'Registration failed');

@@ -29,6 +29,7 @@ import MorningCheckin from '../components/reminders/MorningCheckin'
 import UnmarkedAlert from '../components/reminders/UnmarkedAlert'
 import EndOfDaySummary from '../components/reminders/EndOfDaySummary'
 import { StatSkeleton, CardSkeleton } from '../components/ui/animations'
+import JoinCard from '../components/common/JoinCard'
 
 const ease = [0.4, 0, 0.2, 1]
 
@@ -119,7 +120,7 @@ function DeadlineItem({ a, index = 0 }) {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth()
+  const { user, role, onboarding_completed, institution } = useAuth()
   const [assignments, setAssignments] = useState([])
   const [summaries, setSummaries] = useState([])
   const [activities, setActivities] = useState([])
@@ -309,6 +310,31 @@ export default function DashboardPage() {
         </div>
       ) : (
       <>
+      {/* Urgent Onboarding Banner (students with onboarding_completed = false) */}
+      {!onboarding_completed && role === 'student' && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-200"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0 text-amber-400">
+              <AlertTriangle size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Student profile incomplete</p>
+              <p className="text-xs text-amber-300/80">Set your grade/year and institution details to personalize your schedule.</p>
+            </div>
+          </div>
+          <Link
+            to="/onboarding"
+            className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold text-xs rounded-xl transition-colors whitespace-nowrap self-start sm:self-auto"
+          >
+            Complete Setup &rarr;
+          </Link>
+        </motion.div>
+      )}
+
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -326,6 +352,13 @@ export default function DashboardPage() {
       <MorningCheckin data={morningCheckin} />
       <UnmarkedAlert data={unmarkedReminder} />
       <EndOfDaySummary data={endOfDaySummary} />
+
+      {/* Join Institution Card */}
+      {role === 'student' && (
+        <div className="mb-8">
+          <JoinCard />
+        </div>
+      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
