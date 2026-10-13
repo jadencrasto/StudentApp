@@ -6,7 +6,7 @@ import { FallingPattern } from '../ui/falling-pattern'
 import { useClassNotifications } from '../../hooks/useClassNotifications'
 import {
   LayoutDashboard, BookOpen, CalendarCheck, Trophy,
-  Upload, LogOut, GraduationCap, Grid3X3, Newspaper, School, MessageSquare, FileText, Menu, X
+  Upload, LogOut, GraduationCap, Grid3X3, Newspaper, School, MessageSquare, FileText, Menu, X, ShieldCheck
 } from 'lucide-react'
 
 const NAV = [
@@ -23,9 +23,15 @@ const NAV = [
 ]
 
 export default function Layout() {
-  const { user, logout } = useAuth()
+  const { user, role, logout } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  const navItems = [
+    ...(role === 'super_admin' ? [{ to: '/super-admin', icon: ShieldCheck, label: 'Super Admin' }] : []),
+    ...(role === 'admin' ? [{ to: '/admin', icon: ShieldCheck, label: 'Admin Portal' }] : []),
+    ...NAV,
+  ]
 
   // Start background checks for native browser notifications
   useClassNotifications()
@@ -60,7 +66,7 @@ export default function Layout() {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {NAV.map(({ to, icon: Icon, label }) => (
+        {navItems.map(({ to, icon: Icon, label }) => (
           <div key={to}>
             <NavLink
               to={to}
@@ -105,7 +111,14 @@ export default function Layout() {
             {user?.username?.[0]?.toUpperCase() || 'U'}
           </motion.div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-white truncate">{user?.username}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium text-white truncate">{user?.username}</p>
+              {role !== 'student' && (
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-wider">
+                  {role === 'super_admin' ? 'Super' : 'Admin'}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-gray-500 truncate">{user?.email}</p>
           </div>
         </div>

@@ -21,6 +21,10 @@ const CollegeEventsPage = lazy(() => import('./pages/events/CollegeEventsPage'))
 const ClassroomDashboardPage = lazy(() => import('./pages/classroom/ClassroomDashboardPage'))
 const CourseMaterialsPage = lazy(() => import('./pages/classroom/CourseMaterialsPage'))
 const ChatBotPage = lazy(() => import('./pages/ChatBotPage'))
+const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage'))
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage'))
+const SuperAdminPage = lazy(() => import('./pages/superadmin/SuperAdminPage'))
+const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
 
 const pageTransition = {
   initial: { opacity: 0, y: 8 },
@@ -101,8 +105,60 @@ export default function App() {
           <Route path="/register" element={<motion.div {...pageTransition}><RegisterPage /></motion.div>} />
           <Route path="/upload" element={<UploadRedirect />} />
 
-          {/* Protected: Dashboard & sub-pages (moved from "/" to "/dashboard") */}
-          <Route path="/dashboard" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          {/* Forced Password Change */}
+          <Route path="/change-password" element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <ChangePasswordPage />
+              </Suspense>
+            </ProtectedRoute>
+          } />
+
+          {/* Onboarding (Students only) */}
+          <Route path="/onboarding" element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <Suspense fallback={<PageLoader />}>
+                <OnboardingPage />
+              </Suspense>
+            </ProtectedRoute>
+          } />
+
+          {/* Super Admin Panel (role super_admin only) */}
+          <Route path="/super-admin" element={
+            <ProtectedRoute allowedRoles={['super_admin']}>
+              <Layout />
+            </ProtectedRoute>
+          }>
+            <Route index element={
+              <ErrorBoundary>
+                <Suspense fallback={<PageLoader />}>
+                  <motion.div {...pageTransition} key="super-admin">
+                    <SuperAdminPage />
+                  </motion.div>
+                </Suspense>
+              </ErrorBoundary>
+            } />
+          </Route>
+
+          {/* Institution Admin Panel (role admin only) */}
+          <Route path="/admin" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <Layout />
+            </ProtectedRoute>
+          }>
+            <Route index element={
+              <ErrorBoundary>
+                <Suspense fallback={<PageLoader />}>
+                  <motion.div {...pageTransition} key="admin">
+                    <AdminPage />
+                  </motion.div>
+                </Suspense>
+              </ErrorBoundary>
+            } />
+          </Route>
+
+          {/* Protected: Dashboard & sub-pages */}
+          <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['student', 'admin', 'super_admin']}><Layout /></ProtectedRoute>}>
             <Route index element={<ErrorBoundary><motion.div {...pageTransition} key="dashboard"><DashboardPage /></motion.div></ErrorBoundary>} />
             <Route path="assignments" element={<ErrorBoundary><motion.div {...pageTransition} key="assignments"><AssignmentsPage /></motion.div></ErrorBoundary>} />
             <Route path="attendance" element={<ErrorBoundary><motion.div {...pageTransition} key="attendance"><AttendancePage /></motion.div></ErrorBoundary>} />
