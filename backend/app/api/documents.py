@@ -6,7 +6,7 @@ GET  /documents                 → list all uploads
 import os
 import uuid
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -14,6 +14,7 @@ from typing import List
 
 from app.database import get_db, AsyncSessionLocal
 from app.core.dependencies import get_current_user
+from app.core.upload_security import validate_and_read_upload
 from app.config import settings
 from app.models.user import User
 from app.models import Document, Assignment, TaskType, ExtractionStatus
@@ -186,35 +187,27 @@ async def _process_document(doc_id: str, user_id: str):
 
 @router.post("/upload", response_model=DocumentOut, status_code=202)
 async def upload_document(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """
-    Accepts PDF, image (PNG/JPEG), or TXT file.
+    Accepts PDF, image (PNG/JPEG), DOCX, or TXT file within MAX_UPLOAD_SIZE_MB.
     """
-    content_type = file.content_type or ""
-    file_category = ALLOWED_TYPES.get(content_type)
-
-    if not file_category and file.filename and "." in file.filename:
-        ext = file.filename.rsplit(".", 1)[-1].lower()
-        file_category = EXTENSION_TYPES.get(ext)
-
+    file_bytes, ext = await validate_and_read_upload(file, request=request)
+    file_category = EXTENSION_TYPES.get(ext)
     if not file_category:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unsupported file type: {content_type}. Allowed: PDF, DOC, DOCX, PNG, JPEG, TXT"
-        )
+        content_type = file.content_type or ""
+        file_category = ALLOWED_TYPES.get(content_type, "txt")
 
     # Ensure upload directory exists
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
     # Save file to disk
-    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "bin"
     stored_name = f"{uuid.uuid4()}.{ext}"
     file_path = os.path.join(settings.UPLOAD_DIR, stored_name)
-    file_bytes = await file.read()
 
     async with aiofiles.open(file_path, "wb") as f:
         await f.write(file_bytes)

@@ -4,8 +4,11 @@ import logging
 import os
 import tempfile
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
+from app.core.dependencies import get_current_user
+from app.core.upload_security import validate_and_read_upload
+from app.models.user import User
 from extractor.main import extract_from_path
 
 
@@ -14,17 +17,16 @@ logger = logging.getLogger("extract.api")
 
 
 @router.post("/extract")
-async def extract_document(file: UploadFile = File(...)):
-    suffix = ""
-    if file.filename and "." in file.filename:
-        suffix = "." + file.filename.rsplit(".", 1)[-1]
+async def extract_document(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    payload, ext = await validate_and_read_upload(file, request=request)
+    suffix = f".{ext}" if ext else ""
 
     temp_path = None
     try:
-        payload = await file.read()
-        if not payload:
-            raise HTTPException(status_code=400, detail="Empty file")
-
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(payload)
             temp_path = tmp.name
