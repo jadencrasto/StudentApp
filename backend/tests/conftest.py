@@ -80,6 +80,17 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    """Reset rate limiters between tests so test execution doesn't throttle itself."""
+    from app.core.rate_limiter import limiter, failed_login_tracker
+    try:
+        limiter.reset()
+    except Exception:
+        pass
+    failed_login_tracker._attempts.clear()
+
+
 @pytest_asyncio.fixture()
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """

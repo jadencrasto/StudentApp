@@ -21,7 +21,7 @@ class RegisterRequest(BaseModel):
     @classmethod
     def validate_password_strength(cls, v: str) -> str:
         import re
-        if len(v) < 8:
+        if len(v.strip()) < 8:
             raise ValueError("Password must be at least 8 characters long")
         if not re.search(r"[A-Za-z]", v):
             raise ValueError("Password must contain at least one letter")
