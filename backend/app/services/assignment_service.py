@@ -12,9 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from app.models.assignment import Assignment, AssignmentStatus
 from app.models.document_alert import Document
+import logging
 from app.models.assignment import TaskType, Priority
 from app.schemas.schemas import AssignmentCreate, AssignmentUpdate
 from app.services.time_estimator import estimate_assignment_time
+
+logger = logging.getLogger(__name__)
 
 async def create_assignment(user_id: UUID, data: AssignmentCreate, db: AsyncSession) -> Assignment:
     """Create a new manual assignment in the database."""
@@ -33,6 +36,38 @@ async def create_assignment(user_id: UUID, data: AssignmentCreate, db: AsyncSess
     await db.flush()
     await db.refresh(assignment)
     return assignment
+
+
+async def estimate_assignment_time_background(
+    assignment_id: UUID,
+    user_id: UUID,
+    title: str,
+    description: str,
+    task_type: str | None = None,
+) -> None:
+    """Estimate time in a background task and save to ai_metadata without blocking creation."""
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services.time_estimator import estimate_assignment_time
+
+        text = f"{title} {description}".strip()
+        time_estimate = await estimate_assignment_time(text, task_type)
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Assignment).where(
+                    Assignment.id == assignment_id,
+                    Assignment.user_id == user_id,
+                )
+            )
+            assignment = result.scalar_one_or_none()
+            if assignment:
+                metadata = dict(assignment.ai_metadata or {})
+                metadata["time_estimate"] = time_estimate
+                assignment.ai_metadata = metadata
+                await session.commit()
+    except Exception as exc:
+        logger.warning("Background assignment time estimation failed (%s)", type(exc).__name__)
 
 # =============================================================================
 # GET ASSIGNMENTS

@@ -62,9 +62,13 @@ If the image is unclear or not a timetable, return:
 
 class GeminiTimetableExtractor:
     def __init__(self):
-        if not settings.GEMINI_API_KEY:
-            raise RuntimeError("GEMINI_API_KEY is not configured")
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        api_key = settings.GEMINI_API_KEY_TIMETABLE or settings.GEMINI_API_KEY
+        if not api_key:
+            raise RuntimeError(
+                "Gemini API key for timetable is not configured. "
+                "Please set GEMINI_API_KEY_TIMETABLE or GEMINI_API_KEY in your environment."
+            )
+        self.client = genai.Client(api_key=api_key)
         self.model_name = settings.GEMINI_MODEL
 
         # Configure pytesseract binary path from settings so Windows installs

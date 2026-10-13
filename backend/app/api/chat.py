@@ -23,7 +23,9 @@ from app.schemas.schemas import (
     ChatSendRequest,
     VivaStartRequest,
 )
+from app.services.ai_provider import AIConfigError, AIServiceUnavailableError
 from app.services.chat_service import ChatService
+from app.services.rate_limiter import check_ai_rate_limit
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 chat_service = ChatService()
@@ -96,11 +98,16 @@ async def send_message(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    check_ai_rate_limit(user.id)
     try:
         ai_msg = await chat_service.send_message(
             db, conversation_id, user.id, body.message,
         )
         return ai_msg
+    except AIConfigError as e:
+        raise HTTPException(503, str(e))
+    except AIServiceUnavailableError:
+        raise HTTPException(503, "The AI service is temporarily unavailable. Please try again in a few moments.")
     except ValueError as e:
         raise HTTPException(404, str(e))
 
@@ -113,10 +120,15 @@ async def start_viva(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    check_ai_rate_limit(user.id)
     try:
         conv = await chat_service.start_viva(
             db, user.id, body.document_id, body.num_questions,
         )
         return conv
+    except AIConfigError as e:
+        raise HTTPException(503, str(e))
+    except AIServiceUnavailableError:
+        raise HTTPException(503, "The AI service is temporarily unavailable. Please try again in a few moments.")
     except ValueError as e:
         raise HTTPException(400, str(e))

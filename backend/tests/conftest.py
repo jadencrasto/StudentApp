@@ -47,6 +47,10 @@ TestSessionLocal = async_sessionmaker(
     TEST_ENGINE, class_=AsyncSession, expire_on_commit=False
 )
 
+import app.database
+app.database.engine = TEST_ENGINE
+app.database.AsyncSessionLocal = TestSessionLocal
+
 
 # ── 3. Fixtures ───────────────────────────────────────────────────────
 

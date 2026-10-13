@@ -233,16 +233,25 @@ class AssignmentTimeEstimator:
         }
 
 
+import logging
+from app.services.ai_provider import ai_provider
+
+logger = logging.getLogger(__name__)
+
+
 async def estimate_assignment_time(text: str, task_type: str | None = None) -> Dict:
     safe_text = (text or "").strip()
     if not safe_text:
         estimator = AssignmentTimeEstimator()
         return estimator.estimate("", task_type)
 
-    # Try Ollama AI estimation first
-    ollama_result = await _estimate_with_ollama(safe_text, task_type)
-    if ollama_result is not None:
-        return ollama_result
+    # Try AI estimation via unified AI layer (Gemini / Ollama)
+    try:
+        ai_result = await ai_provider.estimate_time(safe_text, task_type)
+        if ai_result is not None:
+            return ai_result
+    except Exception as exc:
+        logger.warning("AI time estimation failed (%s), falling back to heuristic", type(exc).__name__)
 
     # Fall back to heuristic estimator
     estimator = AssignmentTimeEstimator()

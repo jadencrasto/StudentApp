@@ -1,11 +1,12 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.schemas import AssignmentCreate, AssignmentUpdate, AssignmentOut, EstimateTimeRequest
 from app.services import assignment_service
+from app.services.rate_limiter import check_ai_rate_limit
 from app.services.time_estimator import estimate_assignment_time
 
 router = APIRouter(prefix="/assignments", tags=["Assignments"])
@@ -14,11 +15,22 @@ router = APIRouter(prefix="/assignments", tags=["Assignments"])
 @router.post("", response_model=AssignmentOut, status_code=201)
 async def create(
     data: AssignmentCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a new assignment manually."""
-    return await assignment_service.create_assignment(current_user.id, data, db)
+    """Create a new assignment manually, with time estimated in the background."""
+    assignment = await assignment_service.create_assignment(current_user.id, data, db)
+    task_type_val = data.task_type.value if hasattr(data.task_type, "value") else str(data.task_type) if data.task_type else None
+    background_tasks.add_task(
+        assignment_service.estimate_assignment_time_background,
+        assignment_id=assignment.id,
+        user_id=current_user.id,
+        title=assignment.title or "",
+        description=assignment.description or "",
+        task_type=task_type_val,
+    )
+    return assignment
 
 
 @router.get("", response_model=list[AssignmentOut])
@@ -79,6 +91,7 @@ async def estimate_time(
     if not data.text.strip():
         raise HTTPException(status_code=400, detail="Text is required")
 
+    check_ai_rate_limit(current_user.id)
     return await estimate_assignment_time(data.text, data.task_type)
 
 

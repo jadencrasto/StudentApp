@@ -26,9 +26,15 @@ class Settings(BaseSettings):
     # OCR
     TESSERACT_CMD: str = "tesseract"
 
+    # AI Provider & Models
+    AI_PROVIDER: str = "gemini"  # "gemini" or "ollama"
+    AI_RATE_LIMIT_PER_HOUR: int = 30
+
     # Gemini AI
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    GEMINI_API_KEY_CHAT: str | None = None
+    GEMINI_API_KEY_TIMETABLE: str | None = None
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     GOOGLE_APPLICATION_CREDENTIALS: str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 
     # Google Custom Search API (fallback for JS-heavy college sites)
@@ -55,6 +61,24 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
 
+    def get_gemini_chat_key(self) -> str:
+        key = self.GEMINI_API_KEY_CHAT or self.GEMINI_API_KEY
+        if not key:
+            raise RuntimeError(
+                "Gemini API key for chat/estimation is not configured. "
+                "Please set GEMINI_API_KEY_CHAT or GEMINI_API_KEY in your environment."
+            )
+        return key
+
+    def get_gemini_timetable_key(self) -> str:
+        key = self.GEMINI_API_KEY_TIMETABLE or self.GEMINI_API_KEY
+        if not key:
+            raise RuntimeError(
+                "Gemini API key for timetable/events is not configured. "
+                "Please set GEMINI_API_KEY_TIMETABLE or GEMINI_API_KEY in your environment."
+            )
+        return key
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
@@ -62,6 +86,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 @lru_cache()
