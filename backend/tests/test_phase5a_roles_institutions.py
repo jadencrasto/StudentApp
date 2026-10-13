@@ -436,3 +436,68 @@ class TestCohortManagementAndPromotionScript:
         not_found = await promote_user("nonexistent_user_9999@example.com")
         assert not_found is False
 
+
+@pytest.mark.asyncio
+class TestChangePassword:
+
+    async def test_change_password_success_clears_flag(self, client: AsyncClient, db_session: AsyncSession):
+        u = uuid.uuid4().hex[:6]
+        user = await create_user_with_role(db_session, f"pw_{u}@test.com", role="student")
+        user.must_change_password = True
+        await db_session.commit()
+
+        token = await login_and_get_token(client, user.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = await client.post(
+            "/api/v1/auth/change-password",
+            json={
+                "current_password": "Password123!",
+                "new_password": "NewStrongPass456!",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["must_change_password"] is False
+
+        # Confirm login works with new password
+        login_resp = await client.post(
+            "/api/v1/auth/login",
+            json={"email": user.email, "password": "NewStrongPass456!"},
+        )
+        assert login_resp.status_code == 200
+
+    async def test_change_password_wrong_current(self, client: AsyncClient, db_session: AsyncSession):
+        u = uuid.uuid4().hex[:6]
+        user = await create_user_with_role(db_session, f"pw_wrong_{u}@test.com", role="student")
+        token = await login_and_get_token(client, user.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = await client.post(
+            "/api/v1/auth/change-password",
+            json={
+                "current_password": "WrongPassword999!",
+                "new_password": "NewStrongPass456!",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "incorrect" in resp.json()["detail"].lower()
+
+    async def test_change_password_weak_new(self, client: AsyncClient, db_session: AsyncSession):
+        u = uuid.uuid4().hex[:6]
+        user = await create_user_with_role(db_session, f"pw_weak_{u}@test.com", role="student")
+        token = await login_and_get_token(client, user.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = await client.post(
+            "/api/v1/auth/change-password",
+            json={
+                "current_password": "Password123!",
+                "new_password": "short",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+

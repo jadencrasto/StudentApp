@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi.util import get_remote_address
 
 from app.config import settings
 from app.core.rate_limiter import limiter
+from app.core.security import verify_password, hash_password
 from app.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -13,6 +14,7 @@ from app.schemas.schemas import (
     RegisterRequest,
     LoginRequest,
     TokenResponse,
+    ChangePasswordRequest,
     UserOut,
     InstitutionBriefOut,
     CohortBriefOut,
@@ -121,4 +123,30 @@ async def update_profile_auth(
     await db.commit()
     await db.refresh(current_user)
     return await build_user_out(current_user, db)
+
+
+@router.post("/change-password", response_model=UserOut)
+@limiter.limit("5/minute", key_func=get_remote_address)
+async def change_password(
+    request: Request,
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Change user password. Clears must_change_password.
+    Rate limited to 5 attempts per minute.
+    """
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    current_user.hashed_password = hash_password(data.new_password)
+    current_user.must_change_password = False
+    await db.commit()
+    await db.refresh(current_user)
+    return await build_user_out(current_user, db)
+
 
