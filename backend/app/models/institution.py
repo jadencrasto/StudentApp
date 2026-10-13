@@ -42,10 +42,12 @@ class Cohort(Base):
     name:           Mapped[str]        = mapped_column(String(100), nullable=False)  # e.g. "Grade 9-A" or "SE Computer"
     level_type:     Mapped[str]        = mapped_column(String(50), nullable=False)   # 'grade' or 'college_year'
     level_value:    Mapped[str]        = mapped_column(String(50), nullable=False)   # e.g. "9", "SE"
-    department:     Mapped[str | None] = mapped_column(String(100), nullable=True)
-    academic_year:  Mapped[str]        = mapped_column(String(50), nullable=False)   # e.g. "2026-27"
-    is_active:      Mapped[bool]       = mapped_column(Boolean, default=True, nullable=False)
-    created_at:     Mapped[datetime]   = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    department:        Mapped[str | None] = mapped_column(String(100), nullable=True)
+    academic_year:     Mapped[str]        = mapped_column(String(50), nullable=False)   # e.g. "2026-27"
+    is_active:         Mapped[bool]       = mapped_column(Boolean, default=True, nullable=False)
+    join_code:         Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True, index=True)
+    join_code_enabled: Mapped[bool]       = mapped_column(Boolean, default=True, nullable=False)
+    created_at:        Mapped[datetime]   = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
     institution   = relationship("Institution", back_populates="cohorts")
