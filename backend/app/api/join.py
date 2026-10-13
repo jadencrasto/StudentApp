@@ -63,39 +63,54 @@ async def submit_join_request(
 
     # 4. Validate join code
     normalized_code = (data.join_code or "").strip().upper()
-    institution = await db.scalar(
-        select(Institution).where(Institution.join_code == normalized_code)
+
+    cohort = await db.scalar(
+        select(Cohort).where(Cohort.join_code == normalized_code)
     )
-
-    # Return IDENTICAL error for wrong code and inactive institution
-    if institution is None or not institution.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid join code",
-        )
-
-    # 5. Validate requested cohort if provided (must belong to this institution and be active)
-    requested_cohort_id = None
-    if data.requested_cohort_id:
-        cohort = await db.scalar(
-            select(Cohort).where(
-                Cohort.id == data.requested_cohort_id,
-                Cohort.institution_id == institution.id,
-                Cohort.is_active == True,
-            )
-        )
-        if cohort is None:
-            # Consistent generic error to avoid leaking structure
+    if cohort is not None:
+        if not cohort.join_code_enabled or not cohort.is_active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid join code",
             )
+        institution = await db.get(Institution, cohort.institution_id)
+        if institution is None or not institution.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid join code",
+            )
+        target_institution_id = institution.id
         requested_cohort_id = cohort.id
+    else:
+        institution = await db.scalar(
+            select(Institution).where(Institution.join_code == normalized_code)
+        )
+        if institution is None or not institution.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid join code",
+            )
+        target_institution_id = institution.id
+        requested_cohort_id = None
+        if data.requested_cohort_id:
+            coh = await db.scalar(
+                select(Cohort).where(
+                    Cohort.id == data.requested_cohort_id,
+                    Cohort.institution_id == institution.id,
+                    Cohort.is_active == True,
+                )
+            )
+            if coh is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid join code",
+                )
+            requested_cohort_id = coh.id
 
     # 6. Create pending join request
     join_request = JoinRequest(
         user_id=current_user.id,
-        institution_id=institution.id,
+        institution_id=target_institution_id,
         requested_cohort_id=requested_cohort_id,
         status="pending",
     )

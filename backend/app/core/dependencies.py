@@ -66,7 +66,7 @@ def require_role(*allowed_roles: str):
 
 
 # Convenient pre-configured role dependencies
-require_admin = require_role("admin", "super_admin")
+require_admin = require_role("admin")
 require_super_admin = require_role("super_admin")
 
 

@@ -498,6 +498,38 @@ class AdminUserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AdminUserFullOut(BaseModel):
+    """Extended admin output with is_active and institution name."""
+    id:                   UUID
+    email:                str
+    username:             str
+    full_name:            Optional[str]
+    role:                 str
+    institution_id:       Optional[UUID]
+    institution_name:     Optional[str] = None
+    is_active:            bool
+    must_change_password: bool
+    created_at:           datetime
+
+
+class InstitutionWithCountsOut(BaseModel):
+    id:             UUID
+    name:           str
+    type:           str
+    location:       Optional[str]
+    join_code:      str
+    is_active:      bool
+    created_at:     datetime
+    admin_count:    int = 0
+    class_count:    int = 0
+    student_count:  int = 0
+
+
+class ResetPasswordOut(BaseModel):
+    temporary_password: str
+    message:            str
+
+
 class CohortCreate(BaseModel):
     name:          str = Field(min_length=1, max_length=100)
     level_type:    str = Field(pattern="^(grade|college_year)$")
@@ -516,15 +548,17 @@ class CohortUpdate(BaseModel):
 
 
 class CohortOut(BaseModel):
-    id:             UUID
-    institution_id: UUID
-    name:           str
-    level_type:     str
-    level_value:    str
-    department:     Optional[str]
-    academic_year:  str
-    is_active:      bool
-    created_at:     datetime
+    id:                UUID
+    institution_id:    UUID
+    name:              str
+    level_type:        str
+    level_value:       str
+    department:        Optional[str]
+    academic_year:     str
+    is_active:         bool
+    join_code:         Optional[str] = None
+    join_code_enabled: bool = True
+    created_at:        datetime
 
     model_config = {"from_attributes": True}
 

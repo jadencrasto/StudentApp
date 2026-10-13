@@ -1,9 +1,10 @@
-import uuid
+﻿import uuid
+import secrets
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database import get_db
 from app.core.dependencies import (
@@ -19,8 +20,11 @@ from app.models.institution import Institution, Cohort, JoinRequest, generate_jo
 from app.schemas.schemas import (
     InstitutionCreate,
     InstitutionOut,
+    InstitutionWithCountsOut,
     AdminUserCreate,
     AdminUserOut,
+    AdminUserFullOut,
+    ResetPasswordOut,
     CohortCreate,
     CohortUpdate,
     CohortOut,
@@ -31,9 +35,23 @@ from app.schemas.schemas import (
 router = APIRouter(tags=["Institutions & Administration"])
 
 
-# ─────────────────────────────────────────────────────────────
+async def _generate_unique_join_code(db: AsyncSession, length: int = 8) -> str:
+    """Generate a join code that is unique across BOTH institutions and cohorts."""
+    for _ in range(20):
+        code = generate_join_code(length)
+        inst_exists = await db.scalar(select(Institution).where(Institution.join_code == code))
+        coh_exists = await db.scalar(select(Cohort).where(Cohort.join_code == code))
+        if not inst_exists and not coh_exists:
+            return code
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Failed to generate unique join code",
+    )
+
+
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # SUPER ADMIN ENDPOINTS
-# ─────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/super-admin/institutions", response_model=InstitutionOut, status_code=201)
 async def create_institution(
@@ -42,17 +60,7 @@ async def create_institution(
     db: AsyncSession = Depends(get_db),
 ):
     """Super Admin: create an institution and generate its unique join code."""
-    # Generate unique join code
-    for _ in range(10):
-        code = generate_join_code()
-        existing = await db.scalar(select(Institution).where(Institution.join_code == code))
-        if not existing:
-            break
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate unique join code",
-        )
+    code = await _generate_unique_join_code(db)
 
     institution = Institution(
         name=data.name.strip(),
@@ -76,6 +84,48 @@ async def list_institutions(
     stmt = select(Institution).order_by(Institution.created_at.desc())
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.get("/super-admin/institutions-with-counts", response_model=list[InstitutionWithCountsOut])
+async def list_institutions_with_counts(
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin: list all institutions with admin, class and student counts."""
+    stmt = select(Institution).order_by(Institution.created_at.desc())
+    result = await db.execute(stmt)
+    institutions = result.scalars().all()
+
+    out = []
+    for inst in institutions:
+        admin_count = await db.scalar(
+            select(func.count()).select_from(User).where(
+                User.institution_id == inst.id, User.role == "admin"
+            )
+        )
+        class_count = await db.scalar(
+            select(func.count()).select_from(Cohort).where(
+                Cohort.institution_id == inst.id
+            )
+        )
+        student_count = await db.scalar(
+            select(func.count()).select_from(User).where(
+                User.institution_id == inst.id, User.role == "student"
+            )
+        )
+        out.append(InstitutionWithCountsOut(
+            id=inst.id,
+            name=inst.name,
+            type=inst.type,
+            location=inst.location,
+            join_code=inst.join_code,
+            is_active=inst.is_active,
+            created_at=inst.created_at,
+            admin_count=admin_count or 0,
+            class_count=class_count or 0,
+            student_count=student_count or 0,
+        ))
+    return out
 
 
 @router.patch("/super-admin/institutions/{institution_id}/deactivate", response_model=InstitutionOut)
@@ -132,9 +182,123 @@ async def create_institution_admin(
     return admin
 
 
-# ─────────────────────────────────────────────────────────────
+@router.get("/super-admin/admins", response_model=list[AdminUserFullOut])
+async def list_all_admins(
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin: list all admin users across all institutions."""
+    stmt = (
+        select(User, Institution.name)
+        .outerjoin(Institution, User.institution_id == Institution.id)
+        .where(User.role == "admin")
+        .order_by(User.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    out = []
+    for user, inst_name in rows:
+        out.append(AdminUserFullOut(
+            id=user.id,
+            email=user.email,
+            username=user.username,
+            full_name=user.full_name,
+            role=user.role,
+            institution_id=user.institution_id,
+            institution_name=inst_name,
+            is_active=user.is_active,
+            must_change_password=user.must_change_password,
+            created_at=user.created_at,
+        ))
+    return out
+
+
+@router.patch("/super-admin/admins/{admin_id}/deactivate", response_model=AdminUserFullOut)
+async def deactivate_admin(
+    admin_id: uuid.UUID,
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin: deactivate an admin account."""
+    admin = await db.get(User, admin_id)
+    if not admin or admin.role != "admin":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found")
+
+    admin.is_active = False
+    await db.commit()
+    await db.refresh(admin)
+
+    inst_name = None
+    if admin.institution_id:
+        inst = await db.get(Institution, admin.institution_id)
+        inst_name = inst.name if inst else None
+
+    return AdminUserFullOut(
+        id=admin.id, email=admin.email, username=admin.username,
+        full_name=admin.full_name, role=admin.role,
+        institution_id=admin.institution_id, institution_name=inst_name,
+        is_active=admin.is_active, must_change_password=admin.must_change_password,
+        created_at=admin.created_at,
+    )
+
+
+@router.patch("/super-admin/admins/{admin_id}/reactivate", response_model=AdminUserFullOut)
+async def reactivate_admin(
+    admin_id: uuid.UUID,
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin: reactivate an admin account."""
+    admin = await db.get(User, admin_id)
+    if not admin or admin.role != "admin":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found")
+
+    admin.is_active = True
+    await db.commit()
+    await db.refresh(admin)
+
+    inst_name = None
+    if admin.institution_id:
+        inst = await db.get(Institution, admin.institution_id)
+        inst_name = inst.name if inst else None
+
+    return AdminUserFullOut(
+        id=admin.id, email=admin.email, username=admin.username,
+        full_name=admin.full_name, role=admin.role,
+        institution_id=admin.institution_id, institution_name=inst_name,
+        is_active=admin.is_active, must_change_password=admin.must_change_password,
+        created_at=admin.created_at,
+    )
+
+
+@router.post("/super-admin/admins/{admin_id}/reset-password", response_model=ResetPasswordOut)
+async def reset_admin_password(
+    admin_id: uuid.UUID,
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin: reset admin password to a random temporary password and set must_change_password."""
+    admin = await db.get(User, admin_id)
+    if not admin or admin.role != "admin":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found")
+
+    charset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$"
+    temp_password = "".join(secrets.choice(charset) for _ in range(12))
+
+    admin.hashed_password = hash_password(temp_password)
+    admin.must_change_password = True
+    await db.commit()
+
+    return ResetPasswordOut(
+        temporary_password=temp_password,
+        message="Temporary password has been set. The administrator must change it on next login.",
+    )
+
+
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # ADMIN ENDPOINTS (SCOPED STRICTLY TO ADMIN'S INSTITUTION)
-# ─────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/admin/cohorts", response_model=CohortOut, status_code=201)
 async def create_cohort(
@@ -156,6 +320,9 @@ async def create_cohort(
             detail="A cohort with this name and academic year already exists in your institution",
         )
 
+    # Auto-generate a unique join code for the class
+    cohort_join_code = await _generate_unique_join_code(db)
+
     cohort = Cohort(
         institution_id=institution_id,
         name=data.name.strip(),
@@ -164,6 +331,8 @@ async def create_cohort(
         department=data.department.strip() if data.department else None,
         academic_year=data.academic_year.strip(),
         is_active=True,
+        join_code=cohort_join_code,
+        join_code_enabled=True,
     )
     db.add(cohort)
     await db.commit()
@@ -243,17 +412,7 @@ async def regenerate_institution_join_code(
     if not institution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
 
-    for _ in range(10):
-        code = generate_join_code()
-        existing = await db.scalar(select(Institution).where(Institution.join_code == code))
-        if not existing:
-            break
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate new join code",
-        )
-
+    code = await _generate_unique_join_code(db)
     institution.join_code = code
     await db.commit()
     await db.refresh(institution)
@@ -261,6 +420,41 @@ async def regenerate_institution_join_code(
         "institution_id": institution.id,
         "join_code": institution.join_code,
     }
+
+
+@router.post("/admin/cohorts/{cohort_id}/regenerate-join-code", response_model=CohortOut)
+async def regenerate_cohort_join_code(
+    cohort_id: uuid.UUID,
+    institution_id: uuid.UUID = Depends(get_admin_institution_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: regenerate the join code for a class in their institution."""
+    cohort = await get_institution_scoped_entity(
+        db, Cohort, cohort_id, institution_id, not_found_detail="Cohort not found"
+    )
+
+    code = await _generate_unique_join_code(db)
+    cohort.join_code = code
+    await db.commit()
+    await db.refresh(cohort)
+    return cohort
+
+
+@router.patch("/admin/cohorts/{cohort_id}/toggle-join-code", response_model=CohortOut)
+async def toggle_cohort_join_code(
+    cohort_id: uuid.UUID,
+    institution_id: uuid.UUID = Depends(get_admin_institution_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: enable or disable the join code for a class."""
+    cohort = await get_institution_scoped_entity(
+        db, Cohort, cohort_id, institution_id, not_found_detail="Cohort not found"
+    )
+
+    cohort.join_code_enabled = not cohort.join_code_enabled
+    await db.commit()
+    await db.refresh(cohort)
+    return cohort
 
 
 @router.get("/admin/join-requests", response_model=list[JoinRequestOut])
@@ -373,3 +567,4 @@ async def decide_join_request(
         decided_at=join_req.decided_at,
         created_at=join_req.created_at,
     )
+
