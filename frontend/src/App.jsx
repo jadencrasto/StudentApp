@@ -82,6 +82,11 @@ function ErrorBoundary({ children }) {
   return <ErrorBoundaryInner locationKey={location.key}>{children}</ErrorBoundaryInner>
 }
 
+function UploadRedirect() {
+  const location = useLocation()
+  return <Navigate to={`/dashboard/documents${location.search}`} replace />
+}
+
 export default function App() {
   const location = useLocation()
   return (
@@ -94,6 +99,7 @@ export default function App() {
           {/* Public: Auth */}
           <Route path="/login" element={<motion.div {...pageTransition}><LoginPage /></motion.div>} />
           <Route path="/register" element={<motion.div {...pageTransition}><RegisterPage /></motion.div>} />
+          <Route path="/upload" element={<UploadRedirect />} />
 
           {/* Protected: Dashboard & sub-pages (moved from "/" to "/dashboard") */}
           <Route path="/dashboard" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -106,7 +112,7 @@ export default function App() {
             <Route path="classroom" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="classroom"><ClassroomDashboardPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="classroom/materials" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="classroom-materials"><CourseMaterialsPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="documents" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="documents"><UploadPage /></motion.div></Suspense></ErrorBoundary>} />
-            <Route path="upload" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="upload"><UploadPage /></motion.div></Suspense></ErrorBoundary>} />
+            <Route path="upload" element={<UploadRedirect />} />
             <Route path="chat" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="chat"><ChatBotPage /></motion.div></Suspense></ErrorBoundary>} />
           </Route>
         </Routes>

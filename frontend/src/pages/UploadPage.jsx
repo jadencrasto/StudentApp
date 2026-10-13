@@ -4,8 +4,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { documentsAPI } from '../lib/api'
-import client from '../api/client'
+import client, { documentsAPI } from '../api/client'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import {

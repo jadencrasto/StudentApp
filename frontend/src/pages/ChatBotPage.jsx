@@ -11,7 +11,7 @@ import {
   createConversation, listConversations, getConversation,
   deleteConversation, sendMessage, startViva,
 } from '../api/chat'
-import { documentsAPI } from '../lib/api'
+import { documentsAPI } from '../api/client'
 import toast from 'react-hot-toast'
 import {
   MessageSquare, Send, Plus, Trash2, Bot, User, FileText,

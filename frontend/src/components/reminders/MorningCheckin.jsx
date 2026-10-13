@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { CheckCircle, Circle, Sun, Loader2, Check, Calendar } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { api } from '../../lib/api';
+import { api } from '../../api/client';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 

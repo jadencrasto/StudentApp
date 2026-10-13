@@ -483,7 +483,7 @@ export default function AssignmentsPage() {
               window.open(assignment.link, '_blank', 'noopener,noreferrer')
             }
           }}
-          onDocumentClick={(documentId) => navigate(`/upload?doc=${documentId}`)}
+          onDocumentClick={(documentId) => navigate(`/dashboard/documents?doc=${documentId}`)}
         />
       )}
 

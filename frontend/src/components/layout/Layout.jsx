@@ -18,7 +18,7 @@ const NAV = [
   { to: '/dashboard/events',       icon: Newspaper,        label: 'College Events' },
   { to: '/dashboard/classroom',    icon: School,           label: 'Classroom' },
   { to: '/dashboard/classroom/materials', icon: FileText,  label: 'Course Materials' },
-  { to: '/dashboard/upload',       icon: Upload,           label: 'Upload Doc' },
+  { to: '/dashboard/documents',    icon: Upload,           label: 'Upload Doc' },
   { to: '/dashboard/chat',         icon: MessageSquare,    label: 'AI Chatbot' },
 ]
 

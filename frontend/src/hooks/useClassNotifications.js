@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { notificationService } from '../services/notificationService';
-import { api } from '../lib/api';
+import { api } from '../api/client';
 
 export function useClassNotifications() {
   const checkInterval = useRef(null);

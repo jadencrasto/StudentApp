@@ -5,7 +5,7 @@
  */
 import { useState, useEffect } from "react";
 import { Modal, Spinner } from "../ui/components";
-import { attendanceAPI } from "../../lib/api";
+import { attendanceAPI } from "../../api/client";
 import {
     format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
     eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths

@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import { Modal, Input, Button } from "../ui/components";
-import { attendanceAPI } from "../../lib/api";
+import { attendanceAPI } from "../../api/client";
 import toast from "react-hot-toast";
 
 export function AddSubjectModal({ open, onClose, onSuccess }) {
