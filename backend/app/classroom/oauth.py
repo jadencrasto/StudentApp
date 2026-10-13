@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from uuid import UUID
 
 import httpx
+from cryptography.fernet import InvalidToken
 from fastapi import HTTPException
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -15,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.classroom.security import decrypt_secret, encrypt_secret
 from app.config import settings
 from app.models.integrations import GoogleToken
+
+log = logging.getLogger(__name__)
 
 SCOPES = [
     "https://www.googleapis.com/auth/classroom.courses.readonly",
@@ -61,6 +65,31 @@ def build_google_connect_url(user_id: str) -> str:
     return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
 
 
+def _to_naive_utc(dt: datetime | None) -> datetime | None:
+    """Convert a potentially timezone-aware datetime to naive UTC.
+
+    Postgres returns timezone-aware datetimes, but google-auth's
+    Credentials.expired compares expiry against datetime.utcnow() (naive).
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _to_aware_utc(dt: datetime | None) -> datetime | None:
+    """Convert a naive UTC datetime to timezone-aware UTC for DB storage.
+
+    The expiry column is DateTime(timezone=True), so we store aware UTC.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 async def exchange_code_and_store(db: AsyncSession, code: str, state: str) -> str:
     _ensure_oauth_config()
     if not settings.GOOGLE_CLIENT_SECRET:
@@ -95,13 +124,16 @@ async def exchange_code_and_store(db: AsyncSession, code: str, state: str) -> st
     record.scope = token_data.get("scope", "")
 
     expires_in = int(token_data.get("expires_in", 3600))
-    record.expiry = datetime.utcnow() + timedelta(seconds=expires_in)
+    # Store as aware UTC for the DateTime(timezone=True) column
+    record.expiry = _to_aware_utc(datetime.utcnow() + timedelta(seconds=expires_in))
 
     await db.flush()
     return str(user_id)
 
 
 def _build_credentials(access_token: str, refresh_token: str | None, expiry, scope: str | None) -> Credentials:
+    # google-auth compares expiry with datetime.utcnow() (naive), so convert
+    naive_expiry = _to_naive_utc(expiry)
     return Credentials(
         token=access_token,
         refresh_token=refresh_token,
@@ -109,7 +141,7 @@ def _build_credentials(access_token: str, refresh_token: str | None, expiry, sco
         client_id=settings.GOOGLE_CLIENT_ID,
         client_secret=settings.GOOGLE_CLIENT_SECRET,
         scopes=(scope.split() if scope else SCOPES),
-        expiry=expiry,
+        expiry=naive_expiry,
     )
 
 
@@ -119,8 +151,17 @@ async def get_valid_access_token(db: AsyncSession, user_id: UUID) -> str:
     if not record:
         raise HTTPException(status_code=404, detail="Google account not connected")
 
-    access_token = decrypt_secret(record.access_token)
-    refresh_token = decrypt_secret(record.refresh_token) if record.refresh_token else None
+    # Decrypt tokens; if the encryption key changed, catch InvalidToken
+    try:
+        access_token = decrypt_secret(record.access_token)
+        refresh_token = decrypt_secret(record.refresh_token) if record.refresh_token else None
+    except InvalidToken:
+        log.warning("Fernet decryption failed for user %s — encryption key may have changed", user_id)
+        raise HTTPException(
+            status_code=403,
+            detail="Stored Google credentials could not be decrypted. "
+                   "Please reconnect your Google account.",
+        )
 
     creds = _build_credentials(access_token, refresh_token, record.expiry, record.scope)
     if creds.expired and creds.refresh_token:
@@ -135,7 +176,8 @@ async def get_valid_access_token(db: AsyncSession, user_id: UUID) -> str:
         record.access_token = encrypt_secret(creds.token)
         if creds.refresh_token:
             record.refresh_token = encrypt_secret(creds.refresh_token)
-        record.expiry = creds.expiry
+        # creds.expiry from google-auth is naive UTC; convert to aware UTC for DB
+        record.expiry = _to_aware_utc(creds.expiry)
         await db.flush()
     elif creds.expired and not creds.refresh_token:
         raise HTTPException(

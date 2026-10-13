@@ -1,11 +1,14 @@
+import logging
 from uuid import UUID
 
+from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classroom.oauth import build_google_connect_url, exchange_code_and_store
+from app.classroom.security import decrypt_secret
 from app.classroom.service import get_courses, get_events, get_materials, sync_all
 from app.services.assignment_service import sync_classroom_assignments
 from app.config import settings
@@ -14,6 +17,8 @@ from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.integrations import GoogleToken
 from app.models.user import User
+
+log = logging.getLogger(__name__)
 
 # OAuth routes — mounted at app root level (outside /api/v1)
 # so the callback matches what's registered in Google Cloud Console
@@ -107,13 +112,20 @@ async def classroom_events(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    events = await get_events(db, current_user.id)
+    try:
+        events = await get_events(db, current_user.id)
+    except InvalidToken:
+        log.warning("Fernet decryption failed for user %s during events fetch", current_user.id)
+        raise HTTPException(
+            status_code=403,
+            detail="Stored Google credentials could not be decrypted. "
+                   "Please reconnect your Google account.",
+        )
     # Auto-sync classroom assignments into the assignments table
     try:
         await sync_classroom_assignments(current_user.id, events, db)
     except Exception:
-        import logging
-        logging.getLogger(__name__).warning(
+        log.warning(
             "Classroom → assignments sync failed for user %s", current_user.id, exc_info=True
         )
     return events
@@ -133,13 +145,20 @@ async def classroom_sync(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    data = await sync_all(db, current_user.id)
+    try:
+        data = await sync_all(db, current_user.id)
+    except InvalidToken:
+        log.warning("Fernet decryption failed for user %s during sync", current_user.id)
+        raise HTTPException(
+            status_code=403,
+            detail="Stored Google credentials could not be decrypted. "
+                   "Please reconnect your Google account.",
+        )
     # Auto-sync classroom assignments into the assignments table
     try:
         await sync_classroom_assignments(current_user.id, data["events"], db)
     except Exception:
-        import logging
-        logging.getLogger(__name__).warning(
+        log.warning(
             "Classroom → assignments sync failed for user %s", current_user.id, exc_info=True
         )
     return data
@@ -155,6 +174,15 @@ async def classroom_status(
     record = result.scalar_one_or_none()
     if not record:
         return {"connected": False}
+    # Verify the stored token can still be decrypted
+    try:
+        decrypt_secret(record.access_token)
+    except InvalidToken:
+        log.warning("Fernet decryption failed for user %s during status check", current_user.id)
+        return {
+            "connected": False,
+            "error": "Stored credentials could not be decrypted. Please reconnect your Google account.",
+        }
     return {
         "connected": True,
         "scope": record.scope,
