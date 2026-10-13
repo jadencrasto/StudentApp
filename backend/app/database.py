@@ -137,6 +137,30 @@ async def ensure_attendance_slot_columns() -> None:
         except Exception as exc:
             _log.warning("Could not create uq_attendance_per_slot: %s", exc)
 
+
+async def ensure_phase5a_columns() -> None:
+    """Add Phase 5A multi-tenant role and onboarding columns to users table (SQLite only)."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+    new_columns = [
+        "ALTER TABLE users ADD COLUMN role VARCHAR(30) DEFAULT 'student'",
+        "ALTER TABLE users ADD COLUMN institution_id VARCHAR(36)",
+        "ALTER TABLE users ADD COLUMN cohort_id VARCHAR(36)",
+        "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN education_level VARCHAR(50)",
+        "ALTER TABLE users ADD COLUMN grade_or_year VARCHAR(50)",
+        "ALTER TABLE users ADD COLUMN location VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN institution_name_text VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN extra_info JSON",
+    ]
+    async with engine.begin() as conn:
+        for stmt in new_columns:
+            try:
+                await conn.exec_driver_sql(stmt)
+            except Exception:
+                pass  # column already exists
+
 # Session factory
 AsyncSessionLocal = async_sessionmaker(
     engine,

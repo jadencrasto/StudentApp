@@ -7,6 +7,7 @@ from app.models.document_alert import Document, Alert, AlertType, AlertSeverity,
 from app.models.timetable import TimetableEntry, TimetableDocument
 from app.models.integrations import GoogleToken, CollegeEvent
 from app.models.chat import ChatConversation, ChatMessage
+from app.models.institution import Institution, Cohort, JoinRequest, generate_join_code
 
 __all__ = [
     "User",
@@ -17,4 +18,6 @@ __all__ = [
     "TimetableEntry", "TimetableDocument",
     "GoogleToken", "CollegeEvent",
     "ChatConversation", "ChatMessage",
+    "Institution", "Cohort", "JoinRequest", "generate_join_code",
 ]
+
