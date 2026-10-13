@@ -36,13 +36,30 @@ async def register_user(data: RegisterRequest, db: AsyncSession) -> User:
     return user
 
 
+from app.config import settings
+from app.core.rate_limiter import failed_login_tracker
+
+
 async def login_user(data: LoginRequest, db: AsyncSession) -> str:
     """Verify credentials and return a JWT access token."""
     normalized_email = data.email.strip().lower()
+
+    # Check if this email is rate-limited due to repeated failed logins
+    if failed_login_tracker.is_locked(
+        normalized_email,
+        limit=settings.RATE_LIMIT_FAILED_LOGINS_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed login attempts for this email ({settings.RATE_LIMIT_FAILED_LOGINS_PER_MINUTE} per minute). Please try again later.",
+        )
+
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(data.password, user.hashed_password):
+        failed_login_tracker.record_failure(normalized_email, window_seconds=60)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -50,5 +67,8 @@ async def login_user(data: LoginRequest, db: AsyncSession) -> str:
 
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Account is disabled")
+
+    # Clear failed login history on successful authentication
+    failed_login_tracker.record_success(normalized_email)
 
     return create_access_token(subject=user.id)

@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime, date, time
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field, AliasChoices
+from pydantic import BaseModel, EmailStr, Field, AliasChoices, field_validator
 
 
 # ─── Auth ────────────────────────────────────────────────────
@@ -16,6 +16,18 @@ class RegisterRequest(BaseModel):
     username:  str = Field(min_length=3, max_length=100)
     full_name: Optional[str] = None
     password:  str = Field(min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        import re
+        if len(v.strip()) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not re.search(r"[A-Za-z]", v):
+            raise ValueError("Password must contain at least one letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one number")
+        return v
 
 
 class LoginRequest(BaseModel):

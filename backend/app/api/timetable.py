@@ -3,11 +3,12 @@ import uuid
 import aiofiles
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.dependencies import get_current_user
+from app.core.upload_security import validate_and_read_upload
 from app.database import get_db
 from app.models.user import User
 from app.schemas.schemas import (
@@ -30,14 +31,17 @@ ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf"}
 
 @router.post("/upload", response_model=TimetableUploadOut)
 async def upload_timetable(
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    file_bytes, ext = await validate_and_read_upload(
+        file,
+        request=request,
+        allowed_extensions=ALLOWED_EXTENSIONS,
+    )
     filename = file.filename or "timetable_upload"
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=422, detail="Only PNG, JPG, JPEG, and PDF files are supported")
 
     timetable_upload_dir = os.path.join(settings.UPLOAD_DIR, "timetables")
     os.makedirs(timetable_upload_dir, exist_ok=True)
@@ -45,7 +49,6 @@ async def upload_timetable(
     stored_name = f"{uuid.uuid4()}.{ext}"
     file_path = os.path.join(timetable_upload_dir, stored_name)
 
-    file_bytes = await file.read()
     async with aiofiles.open(file_path, "wb") as out:
         await out.write(file_bytes)
 

@@ -8,8 +8,14 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "SAIS"
-    DEBUG: bool = True
+    DEBUG: bool = False
+    SEED_DEMO_USER: bool = False
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
+
+    # Rate Limiting
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 20
+    RATE_LIMIT_FAILED_LOGINS_PER_MINUTE: int = 5
+    RATE_LIMIT_GENERAL_PER_MINUTE: int = 300
 
     # Database
     DATABASE_URL: str
@@ -56,6 +62,20 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("SECRET_KEY must not be empty")
+        v = v.strip()
+        if len(v) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long")
+        disallowed_terms = ["change-me", "placeholder", "your-super-secret", "default-secret", "secretkey"]
+        v_lower = v.lower()
+        if any(term in v_lower for term in disallowed_terms):
+            raise ValueError("SECRET_KEY cannot be a default or placeholder value")
+        return v
 
     # File uploads
     UPLOAD_DIR: str = "./uploads"

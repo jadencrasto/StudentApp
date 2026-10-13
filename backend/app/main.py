@@ -4,9 +4,14 @@ Entry point. Run with: uvicorn app.main:app --reload
 """
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 from app.config import settings
+from app.core.rate_limiter import limiter
 from app.database import engine, Base, ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column, ensure_activity_recurrence_columns, ensure_notification_columns, ensure_attendance_slot_columns
 from app.models import *  # noqa
 
@@ -37,8 +42,9 @@ async def lifespan(app: FastAPI):
         await ensure_activity_recurrence_columns()
         await ensure_notification_columns()
         await ensure_attendance_slot_columns()
-    # Seed demo user for development
-    await _seed_demo_user()
+    # Seed demo user for development only if explicitly enabled
+    if settings.SEED_DEMO_USER:
+        await _seed_demo_user()
     from app.scheduler import start_scheduler, stop_scheduler
     start_scheduler()
     try:
@@ -81,12 +87,35 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": f"Rate limit exceeded: {exc.detail}. Please slow down and try again later."},
+    )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if not settings.DEBUG:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 
 # Versioned API Router

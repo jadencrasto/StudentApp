@@ -14,6 +14,7 @@ alembic>=1.13.1            # database migrations
 python-jose[cryptography]>=3.3.0   # JWT
 passlib[bcrypt]>=1.7.4             # password hashing
 python-multipart>=0.0.9            # form/file upload support
+slowapi>=0.1.10                    # rate limiting
 
 # Validation & Settings
 pydantic>=2.7.1
