@@ -9,7 +9,8 @@ import {
   Upload, LogOut, GraduationCap, Grid3X3, Newspaper, School, MessageSquare, FileText, Menu, X, ShieldCheck
 } from 'lucide-react'
 
-const NAV = [
+// Student Navigation items
+const STUDENT_NAV = [
   { to: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/dashboard/assignments',  icon: BookOpen,         label: 'Assignments' },
   { to: '/dashboard/attendance',   icon: CalendarCheck,    label: 'Attendance' },
@@ -22,19 +23,31 @@ const NAV = [
   { to: '/dashboard/chat',         icon: MessageSquare,    label: 'AI Chatbot' },
 ]
 
+// Institution Admin Navigation (modular & extensible for Phase 6 modules: Students, Attendance, Timetable, Marks, Events)
+const ADMIN_NAV = [
+  { to: '/admin',                  icon: ShieldCheck,      label: 'Institution & Classes', end: true },
+]
+
+// Super Admin Navigation
+const SUPER_ADMIN_NAV = [
+  { to: '/super-admin',            icon: ShieldCheck,      label: 'Super Admin',           end: true },
+]
+
 export default function Layout() {
   const { user, role, logout } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  const navItems = [
-    ...(role === 'super_admin' ? [{ to: '/super-admin', icon: ShieldCheck, label: 'Super Admin' }] : []),
-    ...(role === 'admin' ? [{ to: '/admin', icon: ShieldCheck, label: 'Admin Portal' }] : []),
-    ...NAV,
-  ]
+  const navItems = role === 'super_admin'
+    ? SUPER_ADMIN_NAV
+    : role === 'admin'
+    ? ADMIN_NAV
+    : role === 'student'
+    ? STUDENT_NAV
+    : []
 
-  // Start background checks for native browser notifications
-  useClassNotifications()
+  // Start background checks for native browser notifications (students only)
+  useClassNotifications(role === 'student')
 
   function closeMobile() { setMobileOpen(false) }
 
@@ -70,7 +83,7 @@ export default function Layout() {
           <div key={to}>
             <NavLink
               to={to}
-              end={to === '/dashboard'}
+              end={to === '/dashboard' || to === '/admin' || to === '/super-admin'}
               onClick={closeMobile}
               className={({ isActive }) =>
                 `relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 min-h-[44px] ${

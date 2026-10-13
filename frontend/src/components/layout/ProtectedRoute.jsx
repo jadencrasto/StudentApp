@@ -30,7 +30,7 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   }
 
   // Role-based access control
-  if (allowedRoles && !allowedRoles.includes(role)) {
+  if (allowedRoles && (!role || !allowedRoles.includes(role))) {
     if (role === 'super_admin') return <Navigate to="/super-admin" replace />;
     if (role === 'admin') return <Navigate to="/admin" replace />;
     return <Navigate to="/dashboard" replace />;

@@ -6,10 +6,14 @@ import { useAuth } from '../../hooks/useAuth';
 import { submitJoin } from '../../api/auth';
 
 export default function JoinCard({ className = '' }) {
-  const { user, institution, cohort, join_request_status, refreshUser } = useAuth();
+  const { user, role, institution, cohort, join_request_status, refreshUser } = useAuth();
   const [joinCode, setJoinCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  if (role !== 'student') {
+    return null;
+  }
 
   const status = join_request_status || (institution ? 'approved' : 'none');
 
@@ -115,8 +119,8 @@ export default function JoinCard({ className = '' }) {
           <KeyRound size={18} />
         </div>
         <div>
-          <h3 className="text-base font-semibold text-white">Join with Institution Code</h3>
-          <p className="text-xs text-slate-400">Connect to your school or college to access official classes</p>
+          <h3 className="text-base font-semibold text-white">Join with Institution or Class Code</h3>
+          <p className="text-xs text-slate-400">Enter your institution or class code to access official academic courses</p>
         </div>
       </div>
 

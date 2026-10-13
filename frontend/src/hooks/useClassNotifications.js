@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { notificationService } from '../services/notificationService';
 import { api } from '../api/client';
 
-export function useClassNotifications() {
+export function useClassNotifications(enabled = true) {
   const checkInterval = useRef(null);
   const [todayClasses, setTodayClasses] = useState([]);
 
   // Fetch today's classes
   const fetchClasses = async () => {
+    if (!enabled) return;
     try {
       const { data } = await api.get('/timetable/today');
       setTodayClasses(data);
@@ -17,12 +18,14 @@ export function useClassNotifications() {
   };
 
   useEffect(() => {
+    if (!enabled) return;
     fetchClasses();
     const interval = setInterval(fetchClasses, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     // Attempt to request permission if currently default
     if (notificationService.permission === 'default') {
       notificationService.requestPermission();

@@ -157,8 +157,8 @@ export default function App() {
             } />
           </Route>
 
-          {/* Protected: Dashboard & sub-pages */}
-          <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['student', 'admin', 'super_admin']}><Layout /></ProtectedRoute>}>
+          {/* Protected: Dashboard & sub-pages (Students only) */}
+          <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['student']}><Layout /></ProtectedRoute>}>
             <Route index element={<ErrorBoundary><motion.div {...pageTransition} key="dashboard"><DashboardPage /></motion.div></ErrorBoundary>} />
             <Route path="assignments" element={<ErrorBoundary><motion.div {...pageTransition} key="assignments"><AssignmentsPage /></motion.div></ErrorBoundary>} />
             <Route path="attendance" element={<ErrorBoundary><motion.div {...pageTransition} key="attendance"><AttendancePage /></motion.div></ErrorBoundary>} />
@@ -171,8 +171,20 @@ export default function App() {
             <Route path="upload" element={<UploadRedirect />} />
             <Route path="chat" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="chat"><ChatBotPage /></motion.div></Suspense></ErrorBoundary>} />
           </Route>
+
+          {/* Catch-all route: redirect to role-specific home */}
+          <Route path="*" element={<HomeRedirect />} />
         </Routes>
       </AnimatePresence>
     </Suspense>
   )
+}
+
+function HomeRedirect() {
+  const { role, isAuthenticated, loading } = useAuth();
+  if (loading) return <PageLoader />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (role === 'super_admin') return <Navigate to="/super-admin" replace />;
+  if (role === 'admin') return <Navigate to="/admin" replace />;
+  return <Navigate to="/dashboard" replace />;
 }

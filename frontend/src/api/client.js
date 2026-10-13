@@ -50,19 +50,26 @@ export const authAPI = {
 
 export const institutionsAPI = {
   // Super Admin
-  listInstitutions:       () => client.get('/super-admin/institutions'),
-  createInstitution:     (data) => client.post('/super-admin/institutions', data),
-  deactivateInstitution: (id) => client.patch(`/super-admin/institutions/${id}/deactivate`),
-  createAdmin:           (id, data) => client.post(`/super-admin/institutions/${id}/admins`, data),
+  listInstitutions:           () => client.get('/super-admin/institutions'),
+  listInstitutionsWithCounts: () => client.get('/super-admin/institutions-with-counts'),
+  createInstitution:          (data) => client.post('/super-admin/institutions', data),
+  deactivateInstitution:      (id) => client.patch(`/super-admin/institutions/${id}/deactivate`),
+  createAdmin:                (id, data) => client.post(`/super-admin/institutions/${id}/admins`, data),
+  listAdmins:                 () => client.get('/super-admin/admins'),
+  deactivateAdmin:            (id) => client.patch(`/super-admin/admins/${id}/deactivate`),
+  reactivateAdmin:            (id) => client.patch(`/super-admin/admins/${id}/reactivate`),
+  resetAdminPassword:         (id) => client.post(`/super-admin/admins/${id}/reset-password`),
 
   // Institution Admin
-  listCohorts:           (params) => client.get('/admin/cohorts', { params }),
-  createCohort:          (data) => client.post('/admin/cohorts', data),
-  updateCohort:          (id, data) => client.patch(`/admin/cohorts/${id}`, data),
-  deactivateCohort:      (id) => client.patch(`/admin/cohorts/${id}/deactivate`),
-  regenerateJoinCode:    () => client.post('/admin/institution/regenerate-join-code'),
-  listJoinRequests:      (params) => client.get('/admin/join-requests', { params }),
-  decideJoinRequest:     (id, data) => client.post(`/admin/join-requests/${id}/decide`, data),
+  listCohorts:                (params) => client.get('/admin/cohorts', { params }),
+  createCohort:               (data) => client.post('/admin/cohorts', data),
+  updateCohort:               (id, data) => client.patch(`/admin/cohorts/${id}`, data),
+  deactivateCohort:           (id) => client.patch(`/admin/cohorts/${id}/deactivate`),
+  regenerateCohortJoinCode:   (id) => client.post(`/admin/cohorts/${id}/regenerate-join-code`),
+  toggleCohortJoinCode:       (id) => client.patch(`/admin/cohorts/${id}/toggle-join-code`),
+  regenerateJoinCode:         () => client.post('/admin/institution/regenerate-join-code'),
+  listJoinRequests:           (params) => client.get('/admin/join-requests', { params }),
+  decideJoinRequest:          (id, data) => client.post(`/admin/join-requests/${id}/decide`, data),
 };
 
 export const studentAPI = {

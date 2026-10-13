@@ -43,7 +43,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user,
-    role: user?.role || 'student',
+    role: user?.role || null,
     onboarding_completed: !!user?.onboarding_completed,
     must_change_password: !!user?.must_change_password,
     institution: user?.institution || null,
