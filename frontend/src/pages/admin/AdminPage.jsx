@@ -17,10 +17,15 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Join Code state
+  // Institution Join Code state
   const [joinCode, setJoinCode] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+
+  // Cohort Join Code state
+  const [copiedCohortCodes, setCopiedCohortCodes] = useState({});
+  const [regeneratingCohortId, setRegeneratingCohortId] = useState(null);
+  const [togglingCohortId, setTogglingCohortId] = useState(null);
 
   // Modals
   const [showClassModal, setShowClassModal] = useState(false);
@@ -72,8 +77,47 @@ export default function AdminPage() {
     setTimeout(() => setCopiedCode(false), 2000);
   }
 
+  function copyCohortCode(id, code) {
+    if (!code) return;
+    navigator.clipboard.writeText(code);
+    setCopiedCohortCodes(prev => ({ ...prev, [id]: true }));
+    toast.success(`Copied class code: ${code}`);
+    setTimeout(() => {
+      setCopiedCohortCodes(prev => ({ ...prev, [id]: false }));
+    }, 2000);
+  }
+
+  async function handleRegenerateCohortCode(cohort) {
+    if (!window.confirm(`Regenerate join code for class "${cohort.name}"? The previous code will stop working immediately.`)) {
+      return;
+    }
+    setRegeneratingCohortId(cohort.id);
+    try {
+      await institutionsAPI.regenerateCohortJoinCode(cohort.id);
+      toast.success('New class join code generated!');
+      await loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to regenerate class join code');
+    } finally {
+      setRegeneratingCohortId(null);
+    }
+  }
+
+  async function handleToggleCohortCode(cohort) {
+    setTogglingCohortId(cohort.id);
+    try {
+      const res = await institutionsAPI.toggleCohortJoinCode(cohort.id);
+      toast.success(res.data.join_code_enabled ? 'Class join code enabled' : 'Class join code disabled');
+      await loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to toggle join code');
+    } finally {
+      setTogglingCohortId(null);
+    }
+  }
+
   async function handleRegenerateCode() {
-    if (!window.confirm('Are you sure you want to regenerate the join code? The previous code will stop working immediately.')) {
+    if (!window.confirm('Are you sure you want to regenerate the institution join code? The previous code will stop working immediately.')) {
       return;
     }
 
@@ -81,7 +125,7 @@ export default function AdminPage() {
     try {
       const res = await institutionsAPI.regenerateJoinCode();
       setJoinCode(res.data.join_code);
-      toast.success('Generated new join code!');
+      toast.success('Generated new institution join code!');
       await refreshUser();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to regenerate join code');
@@ -199,11 +243,11 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Join Code Box */}
+          {/* Institution Join Code Box */}
           <div className="p-3.5 rounded-xl bg-black/60 border border-emerald-500/30 flex items-center gap-4 self-start md:self-auto">
             <div>
               <p className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
-                Student Join Code
+                Institution Join Code
               </p>
               <p className="font-mono text-xl font-bold text-emerald-400 tracking-wider">
                 {currentJoinCode || '••••••••'}
@@ -213,7 +257,7 @@ export default function AdminPage() {
               <button
                 onClick={() => copyCode(currentJoinCode)}
                 className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors"
-                title="Copy Code"
+                title="Copy Institution Code"
               >
                 {copiedCode ? <Check size={16} /> : <Copy size={16} />}
               </button>
@@ -221,7 +265,7 @@ export default function AdminPage() {
                 onClick={handleRegenerateCode}
                 disabled={regenerating}
                 className="p-2 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition-colors"
-                title="Regenerate Code"
+                title="Regenerate Institution Code"
               >
                 <RefreshCw size={16} className={regenerating ? 'animate-spin' : ''} />
               </button>
@@ -271,7 +315,7 @@ export default function AdminPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-base font-semibold text-white">Active Classes & Batches</h2>
-              <p className="text-xs text-slate-400">Manage cohorts students can enroll into</p>
+              <p className="text-xs text-slate-400">Manage cohorts, class join codes, and student enrollment</p>
             </div>
             <button
               onClick={openCreateClass}
@@ -297,36 +341,90 @@ export default function AdminPage() {
               {cohorts.map((c) => (
                 <div
                   key={c.id}
-                  className={`p-5 rounded-2xl border transition-all ${
+                  className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
                     c.is_active
                       ? 'bg-white/[0.02] border-white/10 hover:border-emerald-500/30'
                       : 'bg-white/[0.01] border-white/5 opacity-60'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div>
-                      <h3 className="font-semibold text-white text-base">{c.name}</h3>
-                      <p className="text-xs text-slate-400">{c.academic_year}</p>
+                  <div>
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div>
+                        <h3 className="font-semibold text-white text-base">{c.name}</h3>
+                        <p className="text-xs text-slate-400">{c.academic_year}</p>
+                      </div>
+                      <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${
+                        c.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-700 text-slate-400'
+                      }`}>
+                        {c.is_active ? 'Active' : 'Archived'}
+                      </span>
                     </div>
-                    <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${
-                      c.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-700 text-slate-400'
-                    }`}>
-                      {c.is_active ? 'Active' : 'Archived'}
-                    </span>
-                  </div>
 
-                  <div className="space-y-1 my-3 text-xs text-slate-400">
-                    <p>
-                      <span className="text-slate-500">Level:</span> {c.level_type === 'grade' ? `Grade ${c.level_value}` : `Year ${c.level_value}`}
-                    </p>
-                    {c.department && (
+                    <div className="space-y-1 my-2 text-xs text-slate-400">
                       <p>
-                        <span className="text-slate-500">Dept:</span> {c.department}
+                        <span className="text-slate-500">Level:</span> {c.level_type === 'grade' ? `Grade ${c.level_value}` : `Year ${c.level_value}`}
                       </p>
-                    )}
+                      {c.department && (
+                        <p>
+                          <span className="text-slate-500">Dept:</span> {c.department}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Class Join Code Box */}
+                    <div className="my-3 p-3 rounded-xl bg-black/40 border border-white/5 space-y-2">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-400 font-medium flex items-center gap-1">
+                          <KeyRound size={12} className="text-emerald-400" /> Class Join Code
+                        </span>
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                          c.join_code_enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'
+                        }`}>
+                          {c.join_code_enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`font-mono text-xs font-bold tracking-wider ${
+                          c.join_code_enabled ? 'text-white' : 'text-slate-500 line-through'
+                        }`}>
+                          {c.join_code || '—'}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {c.join_code && (
+                            <button
+                              onClick={() => copyCohortCode(c.id, c.join_code)}
+                              className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                              title="Copy class code"
+                            >
+                              {copiedCohortCodes[c.id] ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleRegenerateCohortCode(c)}
+                            disabled={regeneratingCohortId === c.id}
+                            className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                            title="Regenerate class code"
+                          >
+                            <RefreshCw size={13} className={regeneratingCohortId === c.id ? 'animate-spin' : ''} />
+                          </button>
+                          <button
+                            onClick={() => handleToggleCohortCode(c)}
+                            disabled={togglingCohortId === c.id}
+                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                              c.join_code_enabled
+                                ? 'text-slate-400 hover:text-red-400 hover:bg-red-500/10'
+                                : 'text-emerald-400 hover:bg-emerald-500/10'
+                            }`}
+                            title={c.join_code_enabled ? 'Disable class code' : 'Enable class code'}
+                          >
+                            {c.join_code_enabled ? 'Disable' : 'Enable'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="pt-3 border-t border-white/5 flex items-center justify-end gap-2">
+                  <div className="pt-3 border-t border-white/5 flex items-center justify-end gap-2 mt-2">
                     <button
                       onClick={() => openEditClass(c)}
                       className="p-1.5 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
@@ -357,7 +455,7 @@ export default function AdminPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-base font-semibold text-white">Pending Join Requests</h2>
-              <p className="text-xs text-slate-400">Review and approve students who submitted your join code</p>
+              <p className="text-xs text-slate-400">Review and approve students who submitted your institution or class join code</p>
             </div>
             <button
               onClick={loadData}
@@ -393,9 +491,13 @@ export default function AdminPage() {
                       </div>
                       <p className="text-xs text-slate-400 mt-0.5">{req.user_email}</p>
                       <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
-                        {req.requested_cohort_name && (
-                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                            Requested: {req.requested_cohort_name}
+                        {req.requested_cohort_name ? (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium flex items-center gap-1">
+                            <Layers size={11} /> Requested: {req.requested_cohort_name}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">
+                            Institution-wide Code
                           </span>
                         )}
                         <span className="flex items-center gap-1">
