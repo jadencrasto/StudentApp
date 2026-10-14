@@ -11,6 +11,7 @@ from PIL import Image
 from google.genai import types
 
 from app.config import settings
+from app.core.rate_limiter import quota_cooldown_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -107,28 +108,33 @@ class GeminiTimetableExtractor:
                 "notes": payload.get("notes", ""),
             }
         except Exception as exc:
-            if self._is_quota_error(exc):
-                retry_seconds = self._extract_retry_delay_seconds(exc)
-                if retry_seconds > 0:
-                    logger.warning("Gemini quota/rate-limit hit. Retrying after %ss", retry_seconds)
-                    await anyio.sleep(retry_seconds)
-                    try:
-                        payload = await anyio.to_thread.run_sync(
-                            lambda: self._extract_bytes_sync(file_bytes)
-                        )
-                        processed_entries = self._post_process_entries(payload.get("entries") or [])
-                        if processed_entries:
-                            return {
-                                "status": "success",
-                                "layout_type": payload.get("layout_type", "horizontal"),
-                                "entries": processed_entries,
-                                "confidence": float(payload.get("confidence", 0.0) or 0.0),
-                                "notes": payload.get("notes", ""),
-                            }
-                    except Exception:
-                        pass
+            if self._is_503_error(exc):
+                logger.warning("Gemini 503 UNAVAILABLE (busy). Retrying once in ~3s...")
+                await anyio.sleep(3.0)
+                try:
+                    payload = await anyio.to_thread.run_sync(
+                        lambda: self._extract_bytes_sync(file_bytes)
+                    )
+                    processed_entries = self._post_process_entries(payload.get("entries") or [])
+                    if processed_entries:
+                        return {
+                            "status": "success",
+                            "layout_type": payload.get("layout_type", "horizontal"),
+                            "entries": processed_entries,
+                            "confidence": float(payload.get("confidence", 0.0) or 0.0),
+                            "notes": payload.get("notes", ""),
+                        }
+                except Exception as retry_exc:
+                    if self._is_503_error(retry_exc):
+                        return {
+                            "status": "failed",
+                            "error": "Google's AI is busy right now. Try again in a few minutes, or start from scratch.",
+                            "confidence": 0.0,
+                        }
 
-                logger.warning("Gemini quota exceeded. Falling back to OCR parser.")
+            if self._is_quota_error(exc):
+                quota_cooldown_tracker.set_cooldown(300.0)
+                logger.warning("Gemini quota exceeded (no retry). Falling back to OCR parser.")
                 try:
                     import pytesseract
                     image = Image.open(io.BytesIO(file_bytes))
@@ -146,18 +152,16 @@ class GeminiTimetableExtractor:
                             "notes": "Gemini quota exceeded; OCR fallback used",
                         }
                 except Exception as fallback_exc:
-                    fallback_msg = str(fallback_exc).lower()
-                    if "tesseract" in fallback_msg and "not found" in fallback_msg:
-                        return {
-                            "status": "failed",
-                            "error": "Gemini quota exceeded and OCR fallback is unavailable because Tesseract is not installed.",
-                            "confidence": 0.0,
-                        }
                     return {
                         "status": "failed",
-                        "error": f"Gemini quota exceeded and OCR fallback failed: {fallback_exc}",
+                        "error": "AI daily quota reached. Please try again tomorrow, or enter your timetable manually.",
                         "confidence": 0.0,
                     }
+                return {
+                    "status": "failed",
+                    "error": "AI daily quota reached. Please try again tomorrow, or enter your timetable manually.",
+                    "confidence": 0.0,
+                }
             logger.exception("Gemini timetable extraction (bytes) failed")
             return {"status": "failed", "error": str(exc), "confidence": 0.0}
 
@@ -198,26 +202,31 @@ class GeminiTimetableExtractor:
                 "notes": payload.get("notes", ""),
             }
         except Exception as exc:
-            if self._is_quota_error(exc):
-                retry_seconds = self._extract_retry_delay_seconds(exc)
-                if retry_seconds > 0:
-                    logger.warning("Gemini quota/rate-limit hit. Retrying after %ss", retry_seconds)
-                    await anyio.sleep(retry_seconds)
-                    try:
-                        payload = await anyio.to_thread.run_sync(self._extract_sync, file_path)
-                        processed_entries = self._post_process_entries(payload.get("entries") or [])
-                        if processed_entries:
-                            return {
-                                "status": "success",
-                                "layout_type": payload.get("layout_type", "horizontal"),
-                                "entries": processed_entries,
-                                "confidence": float(payload.get("confidence", 0.0) or 0.0),
-                                "notes": payload.get("notes", ""),
-                            }
-                    except Exception:
-                        pass
+            if self._is_503_error(exc):
+                logger.warning("Gemini 503 UNAVAILABLE (busy). Retrying once in ~3s...")
+                await anyio.sleep(3.0)
+                try:
+                    payload = await anyio.to_thread.run_sync(self._extract_sync, file_path)
+                    processed_entries = self._post_process_entries(payload.get("entries") or [])
+                    if processed_entries:
+                        return {
+                            "status": "success",
+                            "layout_type": payload.get("layout_type", "horizontal"),
+                            "entries": processed_entries,
+                            "confidence": float(payload.get("confidence", 0.0) or 0.0),
+                            "notes": payload.get("notes", ""),
+                        }
+                except Exception as retry_exc:
+                    if self._is_503_error(retry_exc):
+                        return {
+                            "status": "failed",
+                            "error": "Google's AI is busy right now. Try again in a few minutes, or start from scratch.",
+                            "confidence": 0.0,
+                        }
 
-                logger.warning("Gemini quota exceeded. Falling back to OCR parser.")
+            if self._is_quota_error(exc):
+                quota_cooldown_tracker.set_cooldown(300.0)
+                logger.warning("Gemini quota exceeded (no retry). Falling back to OCR parser.")
                 try:
                     fallback_payload = await anyio.to_thread.run_sync(self._extract_with_ocr_fallback_sync, file_path)
                     processed_entries = self._post_process_entries(fallback_payload.get("entries") or [])
@@ -230,22 +239,30 @@ class GeminiTimetableExtractor:
                             "notes": fallback_payload.get("notes", "Used OCR fallback due to Gemini quota limit"),
                         }
                 except Exception as fallback_exc:
-                    fallback_msg = str(fallback_exc).lower()
-                    if "tesseract" in fallback_msg and "not found" in fallback_msg:
-                        return {
-                            "status": "failed",
-                            "error": "Gemini quota exceeded and OCR fallback is unavailable because Tesseract is not installed. Install Tesseract OCR or wait for Gemini quota reset.",
-                            "confidence": 0.0,
-                        }
                     return {
                         "status": "failed",
-                        "error": f"Gemini quota exceeded and OCR fallback failed: {fallback_exc}",
+                        "error": "AI daily quota reached. Please try again tomorrow, or enter your timetable manually.",
                         "confidence": 0.0,
                     }
+                return {
+                    "status": "failed",
+                    "error": "AI daily quota reached. Please try again tomorrow, or enter your timetable manually.",
+                    "confidence": 0.0,
+                }
             logger.exception("Gemini timetable extraction failed")
             return {"status": "failed", "error": str(exc), "confidence": 0.0}
 
+    def _is_503_error(self, exc: Exception) -> bool:
+        code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+        if code == 503:
+            return True
+        msg = str(exc).lower()
+        return ("503" in msg or "unavailable" in msg) and "429" not in msg and "quota" not in msg and "resource_exhausted" not in msg
+
     def _is_quota_error(self, exc: Exception) -> bool:
+        code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+        if code == 429:
+            return True
         message = str(exc).lower()
         return "429" in message or "quota" in message or "rate limit" in message or "resource_exhausted" in message
 
@@ -461,10 +478,13 @@ class GeminiTimetableExtractor:
         processed = []
         for entry in entries:
             try:
-                day_key = str(entry.get("day", "")).lower().strip()
-                day_of_week = day_map.get(day_key)
-                if day_of_week is None:
-                    continue
+                if "day_of_week" in entry and isinstance(entry["day_of_week"], int) and 0 <= entry["day_of_week"] <= 6:
+                    day_of_week = entry["day_of_week"]
+                else:
+                    day_key = str(entry.get("day", "")).lower().strip()
+                    day_of_week = day_map.get(day_key)
+                    if day_of_week is None:
+                        continue
 
                 start_time = self._validate_time(str(entry.get("start_time", "")))
                 end_time = self._validate_time(str(entry.get("end_time", "")))

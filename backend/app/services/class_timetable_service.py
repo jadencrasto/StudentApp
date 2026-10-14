@@ -27,6 +27,7 @@ from sqlalchemy import select, update, delete, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.rate_limiter import quota_cooldown_tracker
 from app.models.class_attendance import ClassAttendanceRecord
 from app.models.class_timetable import ClassTimetable
 from app.models.institution import Cohort, Institution
@@ -211,30 +212,64 @@ def validate_timetable_entries(entries: List[Dict[str, Any]]) -> Tuple[List[Dict
     return sanitized, warnings
 
 
+def _is_gemini_503(exc: Exception) -> bool:
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code == 503:
+        return True
+    msg = str(exc).lower()
+    return ("503" in msg or "unavailable" in msg) and "429" not in msg and "quota" not in msg and "resource_exhausted" not in msg
+
+
+def _is_gemini_429(exc: Exception) -> bool:
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code == 429:
+        return True
+    msg = str(exc).lower()
+    return "429" in msg or "quota" in msg or "resource_exhausted" in msg
+
+
 async def extract_timetable_from_image(file_bytes: bytes) -> Dict[str, Any]:
     """
-    Attempt extraction using Gemini Vision once (no retry on quota 429).
-    If Gemini fails or hits quota, fallback to Tesseract OCR.
-    If OCR also fails or finds nothing, returns friendly error offering manual entry.
+    Attempt extraction using Gemini Vision:
+    - If Gemini returns 503 UNAVAILABLE (busy): wait ~3 seconds and retry ONCE.
+    - If still 503: return friendly message 'Google's AI is busy right now. Try again in a few minutes, or start from scratch.'
+      and mark is_503=True so it does NOT count against the 5-per-hour limit.
+    - Never retry on 429 daily quota.
+    - If daily quota (429): set cooldown tracker and try Tesseract fallback or return friendly message.
     """
     extractor = GeminiTimetableExtractor()
 
-    # 1. Gemini Single Attempt
     gemini_entries = None
-    gemini_error = None
-    try:
-        payload = await anyio.to_thread.run_sync(
-            lambda: extractor._extract_bytes_sync(file_bytes)
-        )
-        if "error" not in payload:
-            processed = extractor._post_process_entries(payload.get("entries") or [])
-            if processed:
-                gemini_entries = processed
-        else:
-            gemini_error = payload.get("error")
-    except Exception as exc:
-        gemini_error = str(exc)
-        logger.warning("Gemini timetable extraction failed: %s", exc)
+    last_exc: Optional[Exception] = None
+    is_quota = False
+
+    for attempt in (1, 2):
+        try:
+            payload = await anyio.to_thread.run_sync(
+                lambda: extractor._extract_bytes_sync(file_bytes)
+            )
+            if "error" not in payload:
+                processed = extractor._post_process_entries(payload.get("entries") or [])
+                if processed:
+                    gemini_entries = processed
+                    break
+            else:
+                err_str = str(payload.get("error"))
+                last_exc = Exception(err_str)
+                if _is_gemini_503(last_exc) and attempt == 1:
+                    logger.info("Gemini 503 UNAVAILABLE (attempt 1). Waiting ~3 seconds before retry...")
+                    await anyio.sleep(3.0)
+                    continue
+                break
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Gemini timetable extraction attempt %d failed: %s", attempt, exc)
+            if _is_gemini_503(exc) and attempt == 1:
+                logger.info("Gemini 503 UNAVAILABLE (attempt 1). Waiting ~3 seconds before retry...")
+                await anyio.sleep(3.0)
+                continue
+            # Never retry on 429 daily quota or other non-503 errors
+            break
 
     if gemini_entries:
         return {
@@ -243,6 +278,21 @@ async def extract_timetable_from_image(file_bytes: bytes) -> Dict[str, Any]:
             "extraction_method": "gemini",
             "message": "Timetable extracted successfully with Gemini Vision.",
         }
+
+    # If still 503 after retry: friendly message and mark is_503=True so it won't count against 5-per-hour limit
+    if last_exc and _is_gemini_503(last_exc):
+        return {
+            "status": "failed",
+            "entries": [],
+            "extraction_method": "none",
+            "is_503": True,
+            "message": "Google's AI is busy right now. Try again in a few minutes, or start from scratch.",
+        }
+
+    # If daily quota reached (429): activate cooldown tracker
+    if last_exc and _is_gemini_429(last_exc):
+        quota_cooldown_tracker.set_cooldown(300.0)
+        is_quota = True
 
     # 2. Fallback to Tesseract OCR
     logger.info("Attempting Tesseract OCR fallback for class timetable...")
@@ -265,10 +315,20 @@ async def extract_timetable_from_image(file_bytes: bytes) -> Dict[str, Any]:
             "status": "fallback_ocr",
             "entries": ocr_entries,
             "extraction_method": "ocr",
+            "is_quota": is_quota,
             "message": "Gemini extraction was unavailable; timetable extracted via OCR fallback. Please review and verify slots.",
         }
 
     # 3. Both failed
+    if is_quota:
+        return {
+            "status": "failed",
+            "entries": [],
+            "extraction_method": "none",
+            "is_quota": True,
+            "message": "AI daily quota reached. Please try again tomorrow, or enter your timetable manually.",
+        }
+
     return {
         "status": "failed",
         "entries": [],

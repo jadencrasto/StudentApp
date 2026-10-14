@@ -234,6 +234,7 @@ class AssignmentTimeEstimator:
 
 
 import logging
+from app.core.rate_limiter import quota_cooldown_tracker
 from app.services.ai_provider import ai_provider
 
 logger = logging.getLogger(__name__)
@@ -244,6 +245,12 @@ async def estimate_assignment_time(text: str, task_type: str | None = None) -> D
     if not safe_text:
         estimator = AssignmentTimeEstimator()
         return estimator.estimate("", task_type)
+
+    # If AI daily quota cooldown is active, bypass AI call and immediately use heuristic
+    if quota_cooldown_tracker.is_in_cooldown():
+        logger.info("AI daily quota cooldown active; skipping AI call and using heuristic estimate.")
+        estimator = AssignmentTimeEstimator()
+        return estimator.estimate(safe_text, task_type)
 
     # Try AI estimation via unified AI layer (Gemini / Ollama)
     try:

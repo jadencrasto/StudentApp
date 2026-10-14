@@ -129,8 +129,11 @@ async def extract_timetable(
             detail="A draft timetable already exists for this class. Please confirm if you wish to overwrite it.",
         )
 
-    # 6. Run AI extraction (Gemini 1 call without sleep retry on 429, fallback to OCR)
+    # 6. Run AI extraction (Gemini with 1 retry on 503, no retry on 429)
     extraction_result = await extract_timetable_from_image(reencoded_bytes)
+    if extraction_result.get("is_503"):
+        ai_extraction_tracker.rollback_attempt(str(admin_user.id))
+        remaining = ai_extraction_tracker.remaining_attempts(str(admin_user.id), limit=5, window_seconds=3600)
     extracted_entries = extraction_result.get("entries") or []
 
     # 7. Persist as draft if entries found or save empty draft for manual completion

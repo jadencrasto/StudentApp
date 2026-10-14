@@ -23,6 +23,7 @@ from app.services.ai_provider import (
     _extract_google_error_info,
     ai_provider,
 )
+from app.core.rate_limiter import quota_cooldown_tracker
 from app.services.rate_limiter import ai_rate_limiter
 from app.services.time_estimator import estimate_assignment_time
 from app.services.gemini_timetable_extractor import GeminiTimetableExtractor
@@ -32,7 +33,9 @@ from app.services.gemini_event_extractor import GeminiEventExtractor
 @pytest.fixture(autouse=True)
 def reset_rate_limit():
     ai_rate_limiter.reset()
+    quota_cooldown_tracker.reset()
     yield
+    quota_cooldown_tracker.reset()
     ai_rate_limiter.reset()
 
 
@@ -119,7 +122,8 @@ class TestCloudAIChat:
             )
 
         assert msg_resp.status_code == 503
-        assert "temporarily unavailable" in msg_resp.json()["detail"].lower()
+        detail = msg_resp.json()["detail"].lower()
+        assert "busy right now" in detail or "temporarily unavailable" in detail
 
     async def test_missing_chat_key_gives_friendly_message(self, client: AsyncClient, auth_headers: dict):
         """Test missing GEMINI_API_KEY_CHAT and GEMINI_API_KEY gives friendly 503 without crashing."""
@@ -467,7 +471,7 @@ class TestErrorExtractionAndRetryPolicy:
 
     @pytest.mark.asyncio
     async def test_retry_on_429_resource_exhausted(self):
-        """429 errors should be retried once."""
+        """429 errors should NOT be retried (daily quota). Raises immediately."""
         call_count = 0
 
         def _mock_call():
@@ -477,9 +481,10 @@ class TestErrorExtractionAndRetryPolicy:
                 raise Exception("429 RESOURCE_EXHAUSTED: Quota exceeded")
             return "Recovered response"
 
-        res = await ai_provider._execute_with_retry_and_timeout(_mock_call)
-        assert call_count == 2
-        assert res == "Recovered response"
+        with pytest.raises(AIServiceUnavailableError) as exc_info:
+            await ai_provider._execute_with_retry_and_timeout(_mock_call)
+        assert call_count == 1  # No retry on 429
+        assert "quota" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_retry_on_503_unavailable(self):

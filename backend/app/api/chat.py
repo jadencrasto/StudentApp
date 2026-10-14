@@ -106,8 +106,8 @@ async def send_message(
         return ai_msg
     except AIConfigError as e:
         raise HTTPException(503, str(e))
-    except AIServiceUnavailableError:
-        raise HTTPException(503, "The AI service is temporarily unavailable. Please try again in a few moments.")
+    except AIServiceUnavailableError as e:
+        raise HTTPException(503, str(e) or "The AI service is temporarily unavailable. Please try again in a few moments.")
     except ValueError as e:
         raise HTTPException(404, str(e))
 
@@ -128,7 +128,7 @@ async def start_viva(
         return conv
     except AIConfigError as e:
         raise HTTPException(503, str(e))
-    except AIServiceUnavailableError:
-        raise HTTPException(503, "The AI service is temporarily unavailable. Please try again in a few moments.")
+    except AIServiceUnavailableError as e:
+        raise HTTPException(503, str(e) or "The AI service is temporarily unavailable. Please try again in a few moments.")
     except ValueError as e:
         raise HTTPException(400, str(e))

@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 
 from app.config import settings
+from app.core.rate_limiter import quota_cooldown_tracker
 from app.services.ollama_client import ollama_client
 
 logger = logging.getLogger(__name__)
@@ -118,20 +119,24 @@ class AIProvider:
         return genai.Client(api_key=key)
 
     def _is_retryable_error(self, code: int | None, status: str | None, exc: Exception) -> bool:
-        """Retry ONLY on 429 and 503. Explicitly never retry on 400, 401, 403, 404."""
-        if code in (400, 401, 403, 404):
+        """Retry ONLY on 503 UNAVAILABLE (busy). Explicitly never retry on 429 daily quota or 4xx."""
+        if code in (400, 401, 403, 404, 429):
             return False
-        if code in (429, 503):
-            return True
+        if status in ("RESOURCE_EXHAUSTED", "INVALID_ARGUMENT", "PERMISSION_DENIED", "NOT_FOUND"):
+            return False
         exc_str = str(exc).lower()
-        if any(k in exc_str for k in ("429", "503", "unavailable", "high demand", "resource_exhausted")):
+        if "429" in exc_str or "quota" in exc_str or "resource_exhausted" in exc_str:
+            return False
+        if code == 503 or status == "UNAVAILABLE":
+            return True
+        if "503" in exc_str or "unavailable" in exc_str:
             return True
         return False
 
     async def _execute_with_retry_and_timeout(self, sync_func: Callable[[], T]) -> T:
         """
         Execute sync AI function in thread with ~30s timeout.
-        Retries once ONLY on 429/503.
+        Retries once ONLY on 503 (wait ~3 seconds). Never retries on 429 daily quota.
         Logs status code, Google status, and Google error message without leaking keys/messages.
         """
         attempts = 2
@@ -161,8 +166,8 @@ class AIProvider:
                 )
 
                 if self._is_retryable_error(code, status, exc) and attempt < attempts:
-                    logger.warning("Transient AI error (HTTP %s, status=%s). Retrying once...", code, status)
-                    await asyncio.sleep(1.5)
+                    logger.warning("Gemini 503 UNAVAILABLE (attempt %d/%d). Retrying in ~3s...", attempt, attempts)
+                    await asyncio.sleep(3.0)
                     continue
 
                 # Non-retryable or retries exhausted: Map to appropriate friendly error
@@ -172,16 +177,17 @@ class AIProvider:
                     raise AIConfigError("Gemini API key is invalid or lacks permissions. Please check GEMINI_API_KEY_CHAT.")
                 elif code == 404 or status == "NOT_FOUND":
                     raise AIConfigError(f"Gemini model is not available. Please verify GEMINI_MODEL in .env.")
-                elif code == 429 or status == "RESOURCE_EXHAUSTED":
-                    raise AIServiceUnavailableError("AI service quota reached or rate-limited. Please try again later.")
-                elif code == 503 or status == "UNAVAILABLE":
-                    raise AIServiceUnavailableError("The AI service is temporarily unavailable. Please try again in a few moments.")
+                elif code == 429 or status == "RESOURCE_EXHAUSTED" or "429" in str(exc).lower() or "quota" in str(exc).lower() or "resource_exhausted" in str(exc).lower():
+                    quota_cooldown_tracker.set_cooldown(300.0)
+                    raise AIServiceUnavailableError("AI daily quota reached. Please try again tomorrow.")
+                elif code == 503 or status == "UNAVAILABLE" or "503" in str(exc).lower() or "unavailable" in str(exc).lower():
+                    raise AIServiceUnavailableError("Google's AI is busy right now. Try again in a few minutes, or start from scratch.")
                 else:
                     raise AIServiceUnavailableError("The AI service is temporarily unavailable.") from exc
 
     async def _execute_async_with_retry_and_timeout(self, async_func: Callable[[], Any]) -> Any:
         """
-        Execute async AI function with ~30s timeout and a single retry on 429/503.
+        Execute async AI function with ~30s timeout and a single retry on 503 (wait ~3 seconds). Never retries on 429 daily quota.
         """
         attempts = 2
         for attempt in range(1, attempts + 1):
@@ -209,12 +215,17 @@ class AIProvider:
                     msg,
                 )
                 if self._is_retryable_error(code, status, exc) and attempt < attempts:
-                    logger.warning("Transient async AI error (HTTP %s). Retrying once...", code)
-                    await asyncio.sleep(1.5)
+                    logger.warning("Transient async AI error (HTTP %s). Retrying in ~3s...", code)
+                    await asyncio.sleep(3.0)
                     continue
-                if code in (401, 403):
+                if code in (401, 403) or status == "PERMISSION_DENIED":
                     raise AIConfigError("AI credentials invalid or unauthorized.")
-                raise AIServiceUnavailableError("The AI service is temporarily unavailable or over quota.") from exc
+                if code == 429 or status == "RESOURCE_EXHAUSTED" or "429" in str(exc).lower() or "quota" in str(exc).lower() or "resource_exhausted" in str(exc).lower():
+                    quota_cooldown_tracker.set_cooldown(300.0)
+                    raise AIServiceUnavailableError("AI daily quota reached. Please try again tomorrow.")
+                elif code == 503 or status == "UNAVAILABLE" or "503" in str(exc).lower() or "unavailable" in str(exc).lower():
+                    raise AIServiceUnavailableError("Google's AI is busy right now. Try again in a few minutes, or start from scratch.")
+                raise AIServiceUnavailableError("The AI service is temporarily unavailable.") from exc
 
     # -------------------------------------------------------------------------
     # Multiturn Chat Generation

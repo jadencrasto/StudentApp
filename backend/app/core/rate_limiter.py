@@ -135,6 +135,13 @@ class AIExtractionTracker:
             history.popleft()
         return max(0, limit - len(history))
 
+    def rollback_attempt(self, user_id: str):
+        """Remove the most recent attempt for user (e.g. if request resulted in 503 busy)."""
+        uid = str(user_id)
+        history = self._attempts.get(uid)
+        if history:
+            history.pop()
+
     def reset(self, user_id: str | None = None):
         if user_id:
             self._attempts.pop(str(user_id), None)
@@ -143,4 +150,27 @@ class AIExtractionTracker:
 
 
 ai_extraction_tracker = AIExtractionTracker()
+
+
+class QuotaCooldownTracker:
+    """
+    Tracks AI quota cooldown (e.g. 5 minutes) when daily quota (429) is hit anywhere.
+    Allows auto time estimate on assignment creation to gracefully bypass AI and use heuristic fallback.
+    """
+    def __init__(self):
+        self._cooldown_until: float = 0.0
+
+    def set_cooldown(self, seconds: float = 300.0):
+        now = time.time()
+        self._cooldown_until = max(self._cooldown_until, now + seconds)
+
+    def is_in_cooldown(self) -> bool:
+        return time.time() < self._cooldown_until
+
+    def reset(self):
+        self._cooldown_until = 0.0
+
+
+quota_cooldown_tracker = QuotaCooldownTracker()
+
 

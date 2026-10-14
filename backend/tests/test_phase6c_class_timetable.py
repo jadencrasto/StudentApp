@@ -499,3 +499,225 @@ async def test_suggested_subjects_endpoint(client: AsyncClient, db_session: Asyn
     subjects = resp.json()
     assert "Computer Networks" in subjects
     assert "Embedded Systems" in subjects
+
+
+@pytest.mark.asyncio
+async def test_timetable_extraction_503_retries_once_and_429_never_retries(monkeypatch):
+    """
+    Requirement 1:
+    - If Gemini returns 503 UNAVAILABLE (busy), wait ~3 seconds and retry ONCE.
+    - Never retry on 429 daily quota.
+    """
+    from unittest.mock import MagicMock
+    import anyio
+    from app.services.class_timetable_service import extract_timetable_from_image
+    from app.services.gemini_timetable_extractor import GeminiTimetableExtractor
+
+    sleep_calls = []
+
+    async def fake_sleep(seconds: float):
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(anyio, "sleep", fake_sleep)
+
+    img_bytes = make_test_image()
+
+    # Case A: 503 on attempt 1, success on attempt 2
+    mock_calls = []
+
+    def mock_extract_503_then_success(bytes_in):
+        mock_calls.append("call")
+        if len(mock_calls) == 1:
+            raise Exception("503 UNAVAILABLE: The service is currently overloaded.")
+        return {
+            "entries": [
+                {"day_of_week": 0, "start_time": "09:00", "end_time": "10:00", "subject": "Calculus"}
+            ]
+        }
+
+    monkeypatch.setattr(
+        GeminiTimetableExtractor,
+        "_extract_bytes_sync",
+        lambda self, b: mock_extract_503_then_success(b),
+    )
+
+    result = await extract_timetable_from_image(img_bytes)
+    assert result["status"] == "success"
+    assert len(result["entries"]) == 1
+    assert result["entries"][0]["subject"] == "Calculus"
+    assert len(mock_calls) == 2, "Expected exactly 2 attempts (1 retry on 503)"
+    assert sleep_calls == [3.0], "Expected sleep of ~3 seconds on 503 retry"
+
+    # Case B: 429 on attempt 1 -> NEVER retries
+    mock_calls_429 = []
+    sleep_calls.clear()
+
+    def mock_extract_429(bytes_in):
+        mock_calls_429.append("call")
+        raise Exception("429 RESOURCE_EXHAUSTED: Daily quota exceeded.")
+
+    monkeypatch.setattr(
+        GeminiTimetableExtractor,
+        "_extract_bytes_sync",
+        lambda self, b: mock_extract_429(b),
+    )
+
+    result_429 = await extract_timetable_from_image(img_bytes)
+    assert len(mock_calls_429) == 1, "Expected exactly 1 call (no retry on 429 quota)"
+    assert len(sleep_calls) == 0, "Never sleep/retry on 429 quota"
+    assert result_429["status"] in ("failed", "fallback_ocr")
+
+
+@pytest.mark.asyncio
+async def test_persistent_503_friendly_message_and_no_rate_limit_deduction(client: AsyncClient, db_session: AsyncSession, monkeypatch):
+    """
+    Requirement 2:
+    - If still 503 after retry, show friendly message:
+      "Google's AI is busy right now. Try again in a few minutes, or start from scratch."
+    - Do not count a 503 against the 5-per-hour limit.
+    """
+    import anyio
+    from app.core.rate_limiter import ai_extraction_tracker
+    from app.services.gemini_timetable_extractor import GeminiTimetableExtractor
+
+    async def fake_sleep(seconds: float):
+        pass
+
+    monkeypatch.setattr(anyio, "sleep", fake_sleep)
+
+    inst = await create_institution(db_session, "Inst 503")
+    cohort = await create_cohort(db_session, inst.id, "Cohort 503")
+    admin = await create_user(db_session, "admin_503@test.com", "admin", inst.id)
+    headers = await get_auth_token(client, admin.email)
+
+    ai_extraction_tracker.reset(str(admin.id))
+    initial_remaining = ai_extraction_tracker.remaining_attempts(str(admin.id), limit=5, window_seconds=3600)
+    assert initial_remaining == 5
+
+    def mock_persistent_503(self, b):
+        raise Exception("503 UNAVAILABLE: Server busy")
+
+    monkeypatch.setattr(GeminiTimetableExtractor, "_extract_bytes_sync", mock_persistent_503)
+
+    img_data = make_test_image()
+    files = {"file": ("timetable.png", img_data, "image/png")}
+
+    resp = await client.post(
+        f"/api/v1/admin/cohorts/{cohort.id}/timetable/extract",
+        headers=headers,
+        files=files,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "failed"
+    assert data["message"] == "Google's AI is busy right now. Try again in a few minutes, or start from scratch."
+
+    # Verify that the 503 did NOT decrement the rate limit!
+    assert data["remaining_attempts"] == 5
+    after_remaining = ai_extraction_tracker.remaining_attempts(str(admin.id), limit=5, window_seconds=3600)
+    assert after_remaining == 5, "503 must not count against 5-per-hour limit"
+
+
+@pytest.mark.asyncio
+async def test_chat_and_estimation_503_retry_and_quota_behavior(monkeypatch):
+    """
+    Requirement 3:
+    - Apply same rule (one retry for 503 only, none for daily quota) to chat and time-estimate calls.
+    - If still 503, friendly message.
+    """
+    import asyncio
+    from app.services.ai_provider import ai_provider, AIServiceUnavailableError
+
+    sleep_calls = []
+
+    async def fake_sleep(seconds: float):
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    # 1. 503 on first try, success on second
+    calls = []
+
+    def mock_sync_503_then_success():
+        calls.append(1)
+        if len(calls) == 1:
+            raise Exception("503 UNAVAILABLE: Model is overloaded")
+        return "Chat response after retry"
+
+    res = await ai_provider._execute_with_retry_and_timeout(mock_sync_503_then_success)
+    assert res == "Chat response after retry"
+    assert len(calls) == 2
+    assert sleep_calls == [3.0]
+
+    # 2. 503 persistent -> friendly message
+    calls.clear()
+    sleep_calls.clear()
+
+    def mock_sync_persistent_503():
+        calls.append(1)
+        raise Exception("503 UNAVAILABLE: Model is overloaded")
+
+    with pytest.raises(AIServiceUnavailableError) as exc_info:
+        await ai_provider._execute_with_retry_and_timeout(mock_sync_persistent_503)
+    assert "Google's AI is busy right now" in str(exc_info.value)
+    assert len(calls) == 2
+
+    # 3. 429 daily quota -> never retries, friendly message
+    calls.clear()
+    sleep_calls.clear()
+
+    def mock_sync_quota_429():
+        calls.append(1)
+        raise Exception("429 RESOURCE_EXHAUSTED: Daily quota reached")
+
+    with pytest.raises(AIServiceUnavailableError) as exc_quota:
+        await ai_provider._execute_with_retry_and_timeout(mock_sync_quota_429)
+    assert "AI daily quota reached" in str(exc_quota.value)
+    assert len(calls) == 1, "Never retry on 429 quota"
+    assert len(sleep_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_daily_quota_error_cooldown_and_auto_time_estimate(monkeypatch):
+    """
+    Requirement 4:
+    - For daily quota errors anywhere: no retry, friendly message.
+    - Sets a short cooldown for the auto time estimate on assignment creation.
+    - During cooldown, auto time estimate skips AI and uses heuristic fallback.
+    """
+    from app.core.rate_limiter import quota_cooldown_tracker
+    from app.services.class_timetable_service import extract_timetable_from_image
+    from app.services.gemini_timetable_extractor import GeminiTimetableExtractor
+    from app.services.time_estimator import estimate_assignment_time
+    from app.services.ai_provider import ai_provider
+
+    quota_cooldown_tracker.reset()
+    assert not quota_cooldown_tracker.is_in_cooldown()
+
+    # Trigger 429 in timetable extraction
+    def mock_extract_429(self, b):
+        raise Exception("429 RESOURCE_EXHAUSTED: Daily limit hit")
+
+    monkeypatch.setattr(GeminiTimetableExtractor, "_extract_bytes_sync", mock_extract_429)
+    img_data = make_test_image()
+
+    res = await extract_timetable_from_image(img_data)
+    assert "AI daily quota reached" in res["message"] or res["status"] == "fallback_ocr"
+
+    # Cooldown should now be active!
+    assert quota_cooldown_tracker.is_in_cooldown(), "Quota cooldown should be activated"
+
+    # When auto time estimate is run, it must skip AI provider and use heuristic directly
+    ai_called = []
+
+    async def mock_ai_estimate(text, task_type=None):
+        ai_called.append(text)
+        return {"estimated_minutes": 999}
+
+    monkeypatch.setattr(ai_provider, "estimate_time", mock_ai_estimate)
+
+    estimate = await estimate_assignment_time("Write a 500 word essay on photosynthesis", task_type="essay")
+    assert len(ai_called) == 0, "AI call must be bypassed during quota cooldown"
+    assert estimate is not None
+    assert estimate["estimated_minutes"] > 0
+    assert estimate["estimated_minutes"] != 999  # Heuristic used, not the AI mock
