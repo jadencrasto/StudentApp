@@ -9,6 +9,7 @@ from app.models.integrations import GoogleToken, CollegeEvent
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.institution import Institution, Cohort, JoinRequest, generate_join_code
 from app.models.class_attendance import ClassAttendanceRecord, ClassAttendanceChangeLog
+from app.models.class_timetable import ClassTimetable
 
 __all__ = [
     "User",
@@ -21,5 +22,6 @@ __all__ = [
     "ChatConversation", "ChatMessage",
     "Institution", "Cohort", "JoinRequest", "generate_join_code",
     "ClassAttendanceRecord", "ClassAttendanceChangeLog",
+    "ClassTimetable",
 ]
 

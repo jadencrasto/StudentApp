@@ -238,6 +238,45 @@ async def ensure_phase6b_tables() -> None:
         except Exception:
             pass
 
+
+async def ensure_phase6c_tables() -> None:
+    """Create class_timetables table for SQLite (Phase 6C)."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+    async with engine.begin() as conn:
+        try:
+            await conn.exec_driver_sql("""
+                CREATE TABLE IF NOT EXISTS class_timetables (
+                    id VARCHAR(36) PRIMARY KEY,
+                    institution_id VARCHAR(36) NOT NULL,
+                    cohort_id VARCHAR(36) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    entries JSON NOT NULL DEFAULT '[]',
+                    image_path VARCHAR(500),
+                    created_by VARCHAR(36),
+                    published_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    FOREIGN KEY (institution_id) REFERENCES institutions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (cohort_id) REFERENCES cohorts(id) ON DELETE CASCADE,
+                    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+                )
+            """)
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_timetable_institution ON class_timetables (institution_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_timetable_cohort ON class_timetables (cohort_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_timetable_status ON class_timetables (status)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_timetable_cohort_status ON class_timetables (cohort_id, status)")
+            # Partial unique indexes for draft and published
+            await conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS uq_one_published_per_cohort ON class_timetables (cohort_id) WHERE status = 'published'")
+            await conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS uq_one_draft_per_cohort ON class_timetables (cohort_id) WHERE status = 'draft'")
+            # Add image_path column if table existed without it
+            try:
+                await conn.exec_driver_sql("ALTER TABLE class_timetables ADD COLUMN image_path VARCHAR(500)")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
 # Session factory
 AsyncSessionLocal = async_sessionmaker(
     engine,

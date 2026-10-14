@@ -5,11 +5,13 @@ import {
   PowerOff, CheckCircle2, XCircle, RefreshCw, AlertCircle, X, Clock, Layers,
   UserPlus, FileSpreadsheet, Upload, Download, Search, Filter, ArrowRightLeft,
   UserCheck, UserX, ChevronLeft, ChevronRight, FileWarning, Eye, ShieldAlert,
-  CalendarCheck
+  CalendarCheck, Calendar
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../hooks/useAuth';
 import { institutionsAPI, adminStudentsAPI, classAttendanceAPI } from '../../api/client';
+import AdminTimetableTab from './AdminTimetableTab';
+
 
 export default function AdminPage() {
   const { user, institution, refreshUser } = useAuth();
@@ -671,6 +673,19 @@ export default function AdminPage() {
           <CalendarCheck size={16} />
           <span>Attendance</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('timetable')}
+          className={`pb-3 px-4 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
+            activeTab === 'timetable'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Calendar size={16} />
+          <span>Timetable</span>
+        </button>
+
 
         <button
           onClick={() => setActiveTab('requests')}
@@ -1361,9 +1376,18 @@ export default function AdminPage() {
       )}
 
       {/* ─────────────────────────────────────────────────────────────
+          TAB: TIMETABLE (Phase 6C)
+      ───────────────────────────────────────────────────────────── */}
+      {activeTab === 'timetable' && (
+        <AdminTimetableTab cohorts={cohorts} institution={institution} />
+      )}
+
+
+      {/* ─────────────────────────────────────────────────────────────
           TAB 3: JOIN REQUESTS
       ───────────────────────────────────────────────────────────── */}
       {activeTab === 'requests' && (
+
         <div>
           <div className="flex items-center justify-between mb-4">
             <div>

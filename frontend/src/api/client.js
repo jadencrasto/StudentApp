@@ -98,10 +98,32 @@ export const classAttendanceAPI = {
   getStudentClassAttendance: () => client.get('/student/class-attendance'),
 };
 
+export const classTimetableAPI = {
+  // Admin Endpoints
+  extractTimetable: (cohortId, file, replaceDraft = false) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post(`/admin/cohorts/${cohortId}/timetable/extract?replace_draft=${replaceDraft}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  getOverview: (cohortId) => client.get(`/admin/cohorts/${cohortId}/timetable`),
+  getDraft: (cohortId) => client.get(`/admin/cohorts/${cohortId}/timetable/draft`),
+  saveDraft: (cohortId, data) => client.put(`/admin/cohorts/${cohortId}/timetable/draft`, data),
+  discardDraft: (cohortId) => client.delete(`/admin/cohorts/${cohortId}/timetable/draft`),
+  publishTimetable: (cohortId, force = false) => client.post(`/admin/cohorts/${cohortId}/timetable/publish`, { force }),
+  editPublished: (cohortId) => client.post(`/admin/cohorts/${cohortId}/timetable/edit-published`),
+  getSuggestedSubjects: (cohortId) => client.get(`/admin/cohorts/${cohortId}/timetable/suggested-subjects`),
+
+  // Student Endpoint
+  getStudentClassTimetable: () => client.get('/student/class-timetable'),
+};
+
 export const studentAPI = {
   updateProfile: (data) => client.patch('/me/profile', data),
   join:          (data) => client.post('/join', data),
 };
+
 
 export const assignmentsAPI = {
   list:           (params) => client.get('/assignments', { params }),
