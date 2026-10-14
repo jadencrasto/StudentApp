@@ -46,6 +46,17 @@ async def get_current_user(
     if user is None or not user.is_active:
         raise credentials_exception
 
+    # Invalidate token if token_version has been bumped or password was reset after token issue
+    token_ver = payload.get("ver")
+    if token_ver is not None and user.token_version is not None:
+        if token_ver != user.token_version:
+            raise credentials_exception
+    elif user.password_changed_at is not None:
+        iat = payload.get("iat")
+        if iat is not None:
+            if int(iat) < int(user.password_changed_at.timestamp()):
+                raise credentials_exception
+
     return user
 
 

@@ -71,4 +71,4 @@ async def login_user(data: LoginRequest, db: AsyncSession) -> str:
     # Clear failed login history on successful authentication
     failed_login_tracker.record_success(normalized_email)
 
-    return create_access_token(subject=user.id)
+    return create_access_token(subject=user.id, token_version=user.token_version)

@@ -22,15 +22,22 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 # ─── JWT ─────────────────────────────────────────────────────
 
-def create_access_token(subject: Any, expires_delta: timedelta | None = None) -> str:
+def create_access_token(
+    subject: Any,
+    expires_delta: timedelta | None = None,
+    token_version: int | None = None,
+) -> str:
     """
     Create a JWT access token.
     subject = user ID (str) stored in 'sub' claim.
+    token_version = integer counter to support instant token invalidation.
     """
     expire = datetime.utcnow() + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     payload = {"sub": str(subject), "exp": expire, "iat": datetime.utcnow()}
+    if token_version is not None:
+        payload["ver"] = token_version
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
