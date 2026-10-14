@@ -602,3 +602,94 @@ class UserProfileUpdateRequest(BaseModel):
     institution_name_text: Optional[str] = Field(default=None, max_length=255)
     extra_info:            Optional[dict] = None
 
+
+# ─── Phase 6A: Student Management & Bulk Upload ──────────────
+
+class StudentCreateRequest(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    email:     EmailStr
+    cohort_id: UUID
+
+
+class StudentOut(BaseModel):
+    id:                    UUID
+    email:                 str
+    username:              str
+    full_name:             Optional[str] = None
+    role:                  str
+    institution_id:        Optional[UUID] = None
+    cohort_id:             Optional[UUID] = None
+    cohort_name:           Optional[str] = None
+    is_active:             bool
+    must_change_password:  bool
+    created_by_admin:      bool = False
+    created_at:            datetime
+    archived_at:           Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class StudentListResponse(BaseModel):
+    items:       list[StudentOut]
+    total:       int
+    page:        int
+    page_size:   int
+    total_pages: int
+
+
+class StudentMoveClassRequest(BaseModel):
+    cohort_id: UUID
+
+
+class StudentBulkPreviewRow(BaseModel):
+    row_num:    int
+    full_name:  str
+    email:      str
+    class_name: str
+    cohort_id:  Optional[str] = None
+    valid:      bool
+    reason:     Optional[str] = None
+
+
+class StudentBulkPreviewResponse(BaseModel):
+    total_rows:   int
+    valid_count:  int
+    invalid_count: int
+    valid_rows:   list[StudentBulkPreviewRow]
+    invalid_rows: list[StudentBulkPreviewRow]
+
+
+class StudentBulkConfirmRow(BaseModel):
+    full_name: str
+    email:     str
+    cohort_id: UUID
+
+
+class StudentBulkConfirmRequest(BaseModel):
+    rows: list[StudentBulkConfirmRow]
+
+
+class StudentCredentialsItem(BaseModel):
+    id:                 UUID
+    full_name:          str
+    email:              str
+    username:           str
+    temporary_password: str
+    class_name:         str
+
+
+class StudentCredentialsOut(BaseModel):
+    id:                 UUID
+    full_name:          str
+    email:              str
+    username:           str
+    temporary_password: str
+    class_name:         str
+    message:            str = "Student created successfully. Credentials must be noted now as password is not retrievable later."
+
+
+class StudentBulkConfirmResponse(BaseModel):
+    created_count:          int
+    credentials:            list[StudentCredentialsItem]
+    credentials_file_b64:   Optional[str] = None
+

@@ -12,7 +12,12 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.core.rate_limiter import limiter
-from app.database import engine, Base, ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column, ensure_activity_recurrence_columns, ensure_notification_columns, ensure_attendance_slot_columns, ensure_phase5a_columns
+from app.database import (
+    engine, Base,
+    ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column,
+    ensure_activity_recurrence_columns, ensure_notification_columns,
+    ensure_attendance_slot_columns, ensure_phase5a_columns, ensure_phase6a_columns,
+)
 from app.models import *  # noqa
 
 from app.api.auth        import router as auth_router
@@ -29,6 +34,7 @@ from app.api.chat import router as chat_router
 from app.api.dashboard import router as dashboard_router
 from app.api.institutions import router as institutions_router
 from app.api.join import router as join_router
+from app.api.admin_students import router as admin_students_router
 
 
 @asynccontextmanager
@@ -45,6 +51,7 @@ async def lifespan(app: FastAPI):
         await ensure_notification_columns()
         await ensure_attendance_slot_columns()
         await ensure_phase5a_columns()
+        await ensure_phase6a_columns()
     # Seed demo user for development only if explicitly enabled
     if settings.SEED_DEMO_USER:
         await _seed_demo_user()
@@ -136,6 +143,7 @@ api_router.include_router(chat_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(institutions_router)
 api_router.include_router(join_router)
+api_router.include_router(admin_students_router)
 
 app.include_router(api_router)
 app.include_router(extract_router)

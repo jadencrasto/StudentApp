@@ -48,6 +48,7 @@ google-api-python-client>=2.149.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
 cryptography>=43.0.1
+openpyxl>=3.1.5                # Excel spreadsheet parsing & generation (.xlsx)
 
 # Testing (dev)
 pytest>=8.2.0
