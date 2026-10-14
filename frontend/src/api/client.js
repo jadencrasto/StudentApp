@@ -72,6 +72,25 @@ export const institutionsAPI = {
   decideJoinRequest:          (id, data) => client.post(`/admin/join-requests/${id}/decide`, data),
 };
 
+export const adminStudentsAPI = {
+  list:             (params) => client.get('/admin/students', { params }),
+  create:           (data) => client.post('/admin/students', data),
+  downloadTemplate: () => client.get('/admin/students/template', { responseType: 'blob' }),
+  uploadPreview:    (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post('/admin/students/upload-preview', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  uploadConfirm:    (data) => client.post('/admin/students/upload-confirm', data),
+  downloadErrorReport: (badRows) => client.post('/admin/students/error-report', badRows, { responseType: 'blob' }),
+  resetPassword:    (studentId) => client.post(`/admin/students/${studentId}/reset-password`),
+  deactivate:       (studentId) => client.patch(`/admin/students/${studentId}/deactivate`),
+  reactivate:       (studentId) => client.patch(`/admin/students/${studentId}/reactivate`),
+  moveCohort:       (studentId, cohortId) => client.patch(`/admin/students/${studentId}/move-cohort`, { cohort_id: cohortId }),
+};
+
 export const studentAPI = {
   updateProfile: (data) => client.patch('/me/profile', data),
   join:          (data) => client.post('/join', data),
