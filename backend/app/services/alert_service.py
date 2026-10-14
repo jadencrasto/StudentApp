@@ -18,6 +18,7 @@ from sqlalchemy import select, and_
 from app.models.document_alert import Alert, AlertType, AlertSeverity
 from app.models.assignment import Assignment, AssignmentStatus
 from app.models.activity import Activity
+from app.models.user import User
 from app.services.attendance_service import get_attendance_summary
 
 
@@ -105,6 +106,83 @@ async def _check_overload(user_id: UUID, db: AsyncSession) -> list[Alert]:
 # ─── Rule 2: Low Attendance ───────────────────────────────────
 
 async def _check_attendance(user_id: UUID, db: AsyncSession) -> list[Alert]:
+    from app.models.user import User
+    user = await db.get(User, user_id)
+    if user and user.cohort_id:
+        return await _check_class_attendance(user, db)
+    return await _check_personal_attendance(user_id, db)
+
+
+async def _check_class_attendance(user: User, db: AsyncSession) -> list[Alert]:
+    """Check class attendance alerts for enrolled students (current cohort only)."""
+    from app.models.class_attendance import ClassAttendanceRecord
+
+    records_res = await db.execute(
+        select(ClassAttendanceRecord).where(
+            and_(
+                ClassAttendanceRecord.student_id == user.id,
+                ClassAttendanceRecord.cohort_id == user.cohort_id,
+            )
+        )
+    )
+    records = list(records_res.scalars().all())
+    if not records:
+        return []
+
+    subject_map: dict[str, list[ClassAttendanceRecord]] = {}
+    for r in records:
+        subject_map.setdefault(r.subject_name_normalized, []).append(r)
+
+    alerts: list[Alert] = []
+    for norm_name, recs in subject_map.items():
+        total = len(recs)
+        # Requirement 5: Require at least 3 sessions before flagging
+        if total < 3:
+            continue
+
+        present = sum(1 for r in recs if r.status == "present")
+        pct = round((present / total) * 100, 2)
+        if pct >= 75.0:
+            continue
+
+        disp_name = recs[0].subject_name
+        title = f"Low Attendance: {disp_name}"
+
+        # Avoid duplicate alert
+        existing_alert = await db.execute(
+            select(Alert).where(
+                and_(
+                    Alert.user_id == user.id,
+                    Alert.alert_type == AlertType.attendance_low,
+                    Alert.is_read.is_(False),
+                    Alert.title == title,
+                )
+            )
+        )
+        if existing_alert.scalar_one_or_none():
+            continue
+
+        safe_threshold = 0.75
+        x = max(0, int((safe_threshold * total - present) / (1 - safe_threshold))) + 1
+        classes_needed_msg = f" You need to attend {x} consecutive classes to recover."
+
+        alerts.append(Alert(
+            user_id=user.id,
+            alert_type=AlertType.attendance_low,
+            severity=AlertSeverity.critical if pct < 70 else AlertSeverity.warning,
+            title=title,
+            message=(
+                f"Your attendance in {disp_name} is {pct}%, "
+                f"which is below the required 75%.{classes_needed_msg}"
+            ),
+            related_subject_id=None,
+        ))
+
+    return alerts
+
+
+async def _check_personal_attendance(user_id: UUID, db: AsyncSession) -> list[Alert]:
+    """Original personal attendance check for independent students."""
     summaries = await get_attendance_summary(user_id, db)
     alerts = []
 

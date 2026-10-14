@@ -8,6 +8,7 @@ from app.models.timetable import TimetableEntry, TimetableDocument
 from app.models.integrations import GoogleToken, CollegeEvent
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.institution import Institution, Cohort, JoinRequest, generate_join_code
+from app.models.class_attendance import ClassAttendanceRecord, ClassAttendanceChangeLog
 
 __all__ = [
     "User",
@@ -19,5 +20,6 @@ __all__ = [
     "GoogleToken", "CollegeEvent",
     "ChatConversation", "ChatMessage",
     "Institution", "Cohort", "JoinRequest", "generate_join_code",
+    "ClassAttendanceRecord", "ClassAttendanceChangeLog",
 ]
 

@@ -188,6 +188,56 @@ async def ensure_phase6a_columns() -> None:
             except Exception:
                 pass
 
+
+async def ensure_phase6b_tables() -> None:
+    """Ensure Phase 6B class attendance tables and indexes exist (SQLite dev mode)."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+    async with engine.begin() as conn:
+        try:
+            await conn.exec_driver_sql("""
+                CREATE TABLE IF NOT EXISTS class_attendance_records (
+                    id VARCHAR(36) PRIMARY KEY,
+                    institution_id VARCHAR(36) NOT NULL,
+                    cohort_id VARCHAR(36) NOT NULL,
+                    student_id VARCHAR(36) NOT NULL,
+                    class_date DATE NOT NULL,
+                    subject_name VARCHAR(100) NOT NULL,
+                    subject_name_normalized VARCHAR(100) NOT NULL,
+                    status VARCHAR(20) NOT NULL,
+                    marked_by VARCHAR(36),
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    CONSTRAINT uq_cohort_student_date_subject UNIQUE (cohort_id, student_id, class_date, subject_name_normalized),
+                    FOREIGN KEY (institution_id) REFERENCES institutions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (cohort_id) REFERENCES cohorts(id) ON DELETE CASCADE,
+                    FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (marked_by) REFERENCES users(id) ON DELETE SET NULL
+                )
+            """)
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_attendance_cohort_date ON class_attendance_records (cohort_id, class_date)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_attendance_student_cohort ON class_attendance_records (student_id, cohort_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_attendance_inst ON class_attendance_records (institution_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_attendance_student ON class_attendance_records (student_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_attendance_date ON class_attendance_records (class_date)")
+
+            await conn.exec_driver_sql("""
+                CREATE TABLE IF NOT EXISTS class_attendance_change_logs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    record_id VARCHAR(36) NOT NULL,
+                    changed_by VARCHAR(36),
+                    previous_status VARCHAR(20) NOT NULL,
+                    new_status VARCHAR(20) NOT NULL,
+                    changed_at TIMESTAMP NOT NULL,
+                    reason VARCHAR(255),
+                    FOREIGN KEY (record_id) REFERENCES class_attendance_records(id) ON DELETE CASCADE,
+                    FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+                )
+            """)
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_class_change_log_record ON class_attendance_change_logs (record_id)")
+        except Exception:
+            pass
+
 # Session factory
 AsyncSessionLocal = async_sessionmaker(
     engine,

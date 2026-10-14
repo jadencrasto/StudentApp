@@ -4,11 +4,12 @@ import {
   School, Users, KeyRound, Copy, Check, Plus, Edit2,
   PowerOff, CheckCircle2, XCircle, RefreshCw, AlertCircle, X, Clock, Layers,
   UserPlus, FileSpreadsheet, Upload, Download, Search, Filter, ArrowRightLeft,
-  UserCheck, UserX, ChevronLeft, ChevronRight, FileWarning, Eye, ShieldAlert
+  UserCheck, UserX, ChevronLeft, ChevronRight, FileWarning, Eye, ShieldAlert,
+  CalendarCheck
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../hooks/useAuth';
-import { institutionsAPI, adminStudentsAPI } from '../../api/client';
+import { institutionsAPI, adminStudentsAPI, classAttendanceAPI } from '../../api/client';
 
 export default function AdminPage() {
   const { user, institution, refreshUser } = useAuth();
@@ -82,6 +83,16 @@ export default function AdminPage() {
   const [resetPwdLoading, setResetPwdLoading] = useState(false);
   const [newTempPasswordResult, setNewTempPasswordResult] = useState(null);
 
+  // ── Phase 6B: Class Attendance Tab State ───────────────────────
+  const [attendanceCohortId, setAttendanceCohortId] = useState('');
+  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [attendanceSubject, setAttendanceSubject] = useState('');
+  const [existingSubjects, setExistingSubjects] = useState([]);
+  const [attendanceData, setAttendanceData] = useState(null);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceSaving, setAttendanceSaving] = useState(false);
+  const [markingState, setMarkingState] = useState({}); // { [student_id]: 'present' | 'absent' }
+
   async function loadData() {
     setLoading(true);
     setError('');
@@ -135,6 +146,103 @@ export default function AdminPage() {
       loadStudents(1);
     }
   }, [activeTab, studentCohortFilter, studentActiveFilter]);
+
+  async function loadAttendanceRoster(cohortId, targetDate, targetSubject) {
+    if (!cohortId) return;
+    setAttendanceLoading(true);
+    try {
+      const params = {};
+      if (targetDate) params.class_date = targetDate;
+      if (targetSubject && targetSubject.trim()) params.subject_name = targetSubject.trim();
+
+      const [res, subjRes] = await Promise.all([
+        classAttendanceAPI.getCohortAttendance(cohortId, params),
+        classAttendanceAPI.getCohortSubjects(cohortId),
+      ]);
+      setAttendanceData(res.data);
+      setExistingSubjects(subjRes.data || []);
+
+      const newMarks = {};
+      res.data.students.forEach((st) => {
+        newMarks[st.student_id] = st.status_on_date || 'present';
+      });
+      setMarkingState(newMarks);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to load class attendance');
+    } finally {
+      setAttendanceLoading(false);
+    }
+  }
+
+  function handleMarkAllPresent() {
+    if (!attendanceData?.students) return;
+    const updated = {};
+    attendanceData.students.forEach((st) => {
+      updated[st.student_id] = 'present';
+    });
+    setMarkingState(updated);
+    toast.success('Marked all students as Present');
+  }
+
+  function handleToggleStudentStatus(studentId) {
+    setMarkingState((prev) => ({
+      ...prev,
+      [studentId]: prev[studentId] === 'absent' ? 'present' : 'absent',
+    }));
+  }
+
+  async function handleSaveAttendance() {
+    if (!attendanceCohortId) {
+      toast.error('Please select a class cohort.');
+      return;
+    }
+    if (!attendanceDate) {
+      toast.error('Please select an attendance date.');
+      return;
+    }
+    if (!attendanceSubject.trim()) {
+      toast.error('Please enter or select a subject name.');
+      return;
+    }
+    if (!attendanceData?.students || attendanceData.students.length === 0) {
+      toast.error('No students in this class cohort.');
+      return;
+    }
+
+    setAttendanceSaving(true);
+    try {
+      const studentPayload = attendanceData.students.map((st) => ({
+        student_id: st.student_id,
+        status: markingState[st.student_id] || 'present',
+      }));
+
+      const res = await classAttendanceAPI.markAttendance({
+        cohort_id: attendanceCohortId,
+        class_date: attendanceDate,
+        subject_name: attendanceSubject.trim(),
+        students: studentPayload,
+      });
+
+      toast.success(`Attendance saved! (${res.data.created} recorded, ${res.data.updated} updated)`);
+      await loadAttendanceRoster(attendanceCohortId, attendanceDate, attendanceSubject);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to save attendance');
+    } finally {
+      setAttendanceSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'attendance') {
+      const targetId = attendanceCohortId || (cohorts.length > 0 ? cohorts[0].id : '');
+      if (targetId && targetId !== attendanceCohortId) {
+        setAttendanceCohortId(targetId);
+      }
+      if (targetId) {
+        loadAttendanceRoster(targetId, attendanceDate, attendanceSubject);
+      }
+    }
+  }, [activeTab, attendanceCohortId]);
 
   function copyCode(code) {
     if (!code) return;
@@ -553,6 +661,18 @@ export default function AdminPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab('attendance')}
+          className={`pb-3 px-4 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
+            activeTab === 'attendance'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <CalendarCheck size={16} />
+          <span>Attendance</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('requests')}
           className={`pb-3 px-4 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'requests'
@@ -937,6 +1057,303 @@ export default function AdminPage() {
                     <ChevronRight size={16} />
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          TAB: CLASS ATTENDANCE (PHASE 6B)
+      ───────────────────────────────────────────────────────────── */}
+      {activeTab === 'attendance' && (
+        <div>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <CalendarCheck className="text-emerald-400" size={20} />
+                Class Attendance Management
+              </h2>
+              <p className="text-xs text-slate-400">
+                Mark daily attendance for enrolled class cohorts, track attendance rates, and monitor students below the 75% threshold.
+              </p>
+            </div>
+
+            {/* Quick Action Buttons */}
+            {attendanceData?.students && attendanceData.students.length > 0 && (
+              <div className="flex items-center gap-2 self-start md:self-auto">
+                <button
+                  type="button"
+                  onClick={handleMarkAllPresent}
+                  className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-semibold text-xs rounded-xl border border-emerald-500/20 transition-all flex items-center gap-1.5"
+                >
+                  <Check size={14} /> Mark All Present
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAttendance}
+                  disabled={attendanceSaving}
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-semibold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5"
+                >
+                  {attendanceSaving ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={14} />
+                  )}
+                  {attendanceSaving ? 'Saving...' : 'Save Attendance'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Control Bar: Class, Date, Subject */}
+          <div className="p-4 rounded-2xl bg-slate-900/80 border border-white/10 mb-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Class Picker */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Select Class Cohort
+                </label>
+                <select
+                  value={attendanceCohortId}
+                  onChange={(e) => setAttendanceCohortId(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-black/50 border border-white/10 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">-- Choose a Class --</option>
+                  {cohorts.filter(c => c.is_active).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.academic_year})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date Picker (No future dates) */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Class Date
+                </label>
+                <input
+                  type="date"
+                  max={new Date().toISOString().split('T')[0]}
+                  value={attendanceDate}
+                  onChange={(e) => setAttendanceDate(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-black/50 border border-white/10 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Subject Input with Datalist (dropdown + custom typing) */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Subject Name
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    list="cohort-attendance-subjects"
+                    value={attendanceSubject}
+                    onChange={(e) => setAttendanceSubject(e.target.value)}
+                    placeholder="Select or enter subject (e.g. Mathematics)..."
+                    className="w-full px-3.5 py-2 bg-black/50 border border-white/10 rounded-xl text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  <datalist id="cohort-attendance-subjects">
+                    {existingSubjects.map((sub, idx) => (
+                      <option key={idx} value={sub} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Pick chips for previously used subjects */}
+            {existingSubjects.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-white/5">
+                <span className="text-[11px] text-slate-400 font-medium">Recorded Subjects:</span>
+                {existingSubjects.map((sub, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setAttendanceSubject(sub);
+                      if (attendanceCohortId) {
+                        loadAttendanceRoster(attendanceCohortId, attendanceDate, sub);
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] transition-all ${
+                      attendanceSubject.trim().toLowerCase() === sub.toLowerCase()
+                        ? 'bg-emerald-500 text-black font-bold shadow-sm'
+                        : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5'
+                    }`}
+                  >
+                    {sub}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Class Summary KPIs */}
+          {attendanceData?.students && attendanceData.students.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-white/10 flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Class Roster</p>
+                  <p className="text-2xl font-bold text-white mt-1 font-mono">{attendanceData.students.length}</p>
+                </div>
+                <Users className="text-emerald-400 opacity-60" size={26} />
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-white/10 flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Class Average</p>
+                  <p className="text-2xl font-bold text-emerald-400 mt-1 font-mono">
+                    {(() => {
+                      const list = attendanceData.students.filter(s => s.total_classes > 0);
+                      if (list.length === 0) return '0.0%';
+                      const avg = list.reduce((acc, curr) => acc + curr.attendance_percentage, 0) / list.length;
+                      return `${avg.toFixed(1)}%`;
+                    })()}
+                  </p>
+                </div>
+                <CalendarCheck className="text-emerald-400 opacity-60" size={26} />
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-white/10 flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">At Risk (&lt;75%)</p>
+                  <p className="text-2xl font-bold text-rose-400 mt-1 font-mono">
+                    {attendanceData.students.filter(s => s.below_threshold).length}
+                  </p>
+                </div>
+                <AlertCircle className="text-rose-400 opacity-60" size={26} />
+              </div>
+            </div>
+          )}
+
+          {/* Roster Table */}
+          {!attendanceCohortId ? (
+            <div className="p-12 rounded-2xl bg-slate-900/50 border border-white/5 text-center">
+              <Layers size={36} className="mx-auto text-slate-600 mb-3" />
+              <p className="text-slate-300 font-medium text-sm">Select a Class Cohort</p>
+              <p className="text-slate-500 text-xs mt-1">Choose a class above to take attendance or view student performance.</p>
+            </div>
+          ) : attendanceLoading ? (
+            <div className="p-12 rounded-2xl bg-slate-900/50 border border-white/5 text-center">
+              <RefreshCw size={24} className="mx-auto text-emerald-400 animate-spin mb-3" />
+              <p className="text-slate-400 text-sm">Loading attendance roster...</p>
+            </div>
+          ) : !attendanceData?.students || attendanceData.students.length === 0 ? (
+            <div className="p-12 rounded-2xl bg-slate-900/50 border border-white/5 text-center">
+              <Users size={36} className="mx-auto text-slate-600 mb-3" />
+              <p className="text-slate-300 font-medium text-sm">No Active Students</p>
+              <p className="text-slate-500 text-xs mt-1">There are no approved, active students enrolled in this class cohort yet.</p>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-slate-900/50 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-white/10 bg-black/40 text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
+                      <th className="px-5 py-3.5">Student</th>
+                      <th className="px-5 py-3.5">Email / Username</th>
+                      <th className="px-5 py-3.5">Class Attendance Rate</th>
+                      <th className="px-5 py-3.5 text-center">Mark Status for Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {attendanceData.students.map((st) => {
+                      const status = markingState[st.student_id] || 'present';
+                      return (
+                        <tr key={st.student_id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-xs">
+                                {(st.full_name || st.username || 'S')[0].toUpperCase()}
+                              </div>
+                              <span className="font-semibold text-white text-sm">
+                                {st.full_name}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="px-5 py-3.5">
+                            <p className="text-xs text-slate-300">{st.email}</p>
+                            <p className="text-[11px] text-slate-500 font-mono">@{st.username}</p>
+                          </td>
+
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center gap-2">
+                              {st.total_classes === 0 ? (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-white/5 text-slate-400">
+                                  No records yet
+                                </span>
+                              ) : st.below_threshold ? (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
+                                  <AlertCircle size={12} /> {st.attendance_percentage}% ({st.present_count}/{st.total_classes}) Low
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  {st.attendance_percentage}% ({st.present_count}/{st.total_classes})
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMarkingState(prev => ({ ...prev, [st.student_id]: 'present' }));
+                                }}
+                                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                  status === 'present'
+                                    ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                                    : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                                }`}
+                              >
+                                Present
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMarkingState(prev => ({ ...prev, [st.student_id]: 'absent' }));
+                                }}
+                                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                  status === 'absent'
+                                    ? 'bg-rose-500 text-white shadow-md shadow-rose-500/20'
+                                    : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                                }`}
+                              >
+                                Absent
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Bottom Footer inside Table */}
+              <div className="p-4 bg-black/30 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <span className="text-xs text-slate-400">
+                  Showing {attendanceData.students.length} student{attendanceData.students.length === 1 ? '' : 's'}. Make sure to click <strong>Save Attendance</strong> to record changes.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveAttendance}
+                  disabled={attendanceSaving}
+                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-semibold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5 self-end sm:self-auto"
+                >
+                  {attendanceSaving ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={14} />
+                  )}
+                  {attendanceSaving ? 'Saving...' : 'Save Attendance'}
+                </button>
               </div>
             </div>
           )}

@@ -91,6 +91,13 @@ export const adminStudentsAPI = {
   moveCohort:       (studentId, cohortId) => client.patch(`/admin/students/${studentId}/move-cohort`, { cohort_id: cohortId }),
 };
 
+export const classAttendanceAPI = {
+  getCohortAttendance: (cohortId, params) => client.get(`/admin/attendance/cohorts/${cohortId}`, { params }),
+  getCohortSubjects:   (cohortId) => client.get(`/admin/attendance/cohorts/${cohortId}/subjects`),
+  markAttendance:      (data) => client.post('/admin/attendance/mark', data),
+  getStudentClassAttendance: () => client.get('/student/class-attendance'),
+};
+
 export const studentAPI = {
   updateProfile: (data) => client.patch('/me/profile', data),
   join:          (data) => client.post('/join', data),
