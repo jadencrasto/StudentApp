@@ -18,43 +18,64 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        'class_timetables',
-        sa.Column('id', sa.Uuid(as_uuid=True), primary_key=True),
-        sa.Column('institution_id', sa.Uuid(as_uuid=True), sa.ForeignKey('institutions.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('cohort_id', sa.Uuid(as_uuid=True), sa.ForeignKey('cohorts.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('status', sa.String(20), nullable=False, server_default='draft'),
-        sa.Column('entries', sa.JSON, nullable=False, server_default='[]'),
-        sa.Column('image_path', sa.String(500), nullable=True),
-        sa.Column('created_by', sa.Uuid(as_uuid=True), sa.ForeignKey('users.id', ondelete='SET NULL'), nullable=True),
-        sa.Column('published_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-    )
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    tables = insp.get_table_names()
 
-    op.create_index('ix_class_timetable_institution', 'class_timetables', ['institution_id'])
-    op.create_index('ix_class_timetable_cohort', 'class_timetables', ['cohort_id'])
-    op.create_index('ix_class_timetable_status', 'class_timetables', ['status'])
-    op.create_index('ix_class_timetable_cohort_status', 'class_timetables', ['cohort_id', 'status'])
+    if 'class_timetables' not in tables:
+        op.create_table(
+            'class_timetables',
+            sa.Column('id', sa.Uuid(as_uuid=True), primary_key=True),
+            sa.Column('institution_id', sa.Uuid(as_uuid=True), sa.ForeignKey('institutions.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('cohort_id', sa.Uuid(as_uuid=True), sa.ForeignKey('cohorts.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('status', sa.String(20), nullable=False, server_default='draft'),
+            sa.Column('entries', sa.JSON, nullable=False, server_default='[]'),
+            sa.Column('image_path', sa.String(500), nullable=True),
+            sa.Column('created_by', sa.Uuid(as_uuid=True), sa.ForeignKey('users.id', ondelete='SET NULL'), nullable=True),
+            sa.Column('published_at', sa.DateTime(timezone=True), nullable=True),
+            sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        )
+    else:
+        cols = [c['name'] for c in insp.get_columns('class_timetables')]
+        if 'image_path' not in cols:
+            op.add_column('class_timetables', sa.Column('image_path', sa.String(500), nullable=True))
+
+    existing_indexes = [idx['name'] for idx in insp.get_indexes('class_timetables')]
+
+    if 'ix_class_timetable_institution' not in existing_indexes:
+        op.create_index('ix_class_timetable_institution', 'class_timetables', ['institution_id'])
+    if 'ix_class_timetable_cohort' not in existing_indexes:
+        op.create_index('ix_class_timetable_cohort', 'class_timetables', ['cohort_id'])
+    if 'ix_class_timetable_status' not in existing_indexes:
+        op.create_index('ix_class_timetable_status', 'class_timetables', ['status'])
+    if 'ix_class_timetable_cohort_status' not in existing_indexes:
+        op.create_index('ix_class_timetable_cohort_status', 'class_timetables', ['cohort_id', 'status'])
 
     # Only one published timetable per cohort and only one draft per cohort
-    op.create_index(
-        'uq_one_published_per_cohort',
-        'class_timetables',
-        ['cohort_id'],
-        unique=True,
-        postgresql_where=sa.text("status = 'published'"),
-        sqlite_where=sa.text("status = 'published'")
-    )
-    op.create_index(
-        'uq_one_draft_per_cohort',
-        'class_timetables',
-        ['cohort_id'],
-        unique=True,
-        postgresql_where=sa.text("status = 'draft'"),
-        sqlite_where=sa.text("status = 'draft'")
-    )
+    if 'uq_one_published_per_cohort' not in existing_indexes:
+        op.create_index(
+            'uq_one_published_per_cohort',
+            'class_timetables',
+            ['cohort_id'],
+            unique=True,
+            postgresql_where=sa.text("status = 'published'"),
+            sqlite_where=sa.text("status = 'published'")
+        )
+    if 'uq_one_draft_per_cohort' not in existing_indexes:
+        op.create_index(
+            'uq_one_draft_per_cohort',
+            'class_timetables',
+            ['cohort_id'],
+            unique=True,
+            postgresql_where=sa.text("status = 'draft'"),
+            sqlite_where=sa.text("status = 'draft'")
+        )
 
 
 def downgrade() -> None:
-    op.drop_table('class_timetables')
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    tables = insp.get_table_names()
+    if 'class_timetables' in tables:
+        op.drop_table('class_timetables')
