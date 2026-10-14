@@ -49,6 +49,8 @@ export function AuthProvider({ children }) {
     institution: user?.institution || null,
     cohort: user?.cohort || null,
     join_request_status: user?.join_request_status || null,
+    join_request_type: user?.join_request_type || null,
+    join_requested_cohort_name: user?.join_requested_cohort_name || null,
     loading,
     isAuthenticated: !!user,
     setToken,

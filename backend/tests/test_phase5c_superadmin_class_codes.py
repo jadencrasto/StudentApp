@@ -272,28 +272,31 @@ class TestClassJoinCodesAndStudentJoin:
         await db_session.commit()
         await db_session.refresh(cohort)
 
-        student = await create_user_with_role(db_session, "student_cc@test.com", role="student")
+        # Student with institution membership submits the class join code to /join/class
+        student = await create_user_with_role(
+            db_session, "student_cc@test.com", role="student", institution_id=inst.id
+        )
         stu_token = await login_and_get_token(client, student.email)
         stu_headers = {"Authorization": f"Bearer {stu_token}"}
 
-        # Student submits the class join code directly
         resp = await client.post(
-            "/api/v1/join",
+            "/api/v1/join/class",
             json={"join_code": cohort.join_code},
             headers={**stu_headers, "X-Forwarded-For": "198.51.100.1"},
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "pending"
 
-        # Check created JoinRequest has both institution_id and requested_cohort_id
+        # Check created JoinRequest has institution_id, requested_cohort_id, and request_type == 'class'
         req = await db_session.scalar(
             select(JoinRequest).where(JoinRequest.user_id == student.id)
         )
         assert req is not None
         assert req.institution_id == inst.id
         assert req.requested_cohort_id == cohort.id
+        assert req.request_type == "class"
 
-        # Admin lists join requests and sees requested class name
+        # Admin lists join requests and sees requested class name and request_type
         resp = await client.get("/api/v1/admin/join-requests", headers=adm_headers)
         assert resp.status_code == 200
         requests_list = resp.json()
@@ -301,6 +304,7 @@ class TestClassJoinCodesAndStudentJoin:
         found_req = next((r for r in requests_list if r["id"] == str(req.id)), None)
         assert found_req is not None
         assert found_req["requested_cohort_name"] == "Mechanical FE"
+        assert found_req["request_type"] == "class"
 
     async def test_disabled_class_code_returns_generic_error(
         self, client: AsyncClient, db_session: AsyncSession
@@ -323,17 +327,19 @@ class TestClassJoinCodesAndStudentJoin:
         await db_session.commit()
         await db_session.refresh(cohort)
 
-        student = await create_user_with_role(db_session, "stu_locked@test.com", role="student")
+        student = await create_user_with_role(
+            db_session, "stu_locked@test.com", role="student", institution_id=inst.id
+        )
         stu_token = await login_and_get_token(client, student.email)
         stu_headers = {"Authorization": f"Bearer {stu_token}"}
 
         resp = await client.post(
-            "/api/v1/join",
+            "/api/v1/join/class",
             json={"join_code": cohort.join_code},
             headers={**stu_headers, "X-Forwarded-For": "198.51.100.2"},
         )
         assert resp.status_code == 400
-        assert resp.json()["detail"] == "Invalid join code"
+        assert resp.json()["detail"] == "Invalid class code"
 
     async def test_inactive_institution_class_code_returns_generic_error(
         self, client: AsyncClient, db_session: AsyncSession
@@ -356,14 +362,16 @@ class TestClassJoinCodesAndStudentJoin:
         await db_session.commit()
         await db_session.refresh(cohort)
 
-        student = await create_user_with_role(db_session, "stu_closed@test.com", role="student")
+        student = await create_user_with_role(
+            db_session, "stu_closed@test.com", role="student", institution_id=inst.id
+        )
         stu_token = await login_and_get_token(client, student.email)
         stu_headers = {"Authorization": f"Bearer {stu_token}"}
 
         resp = await client.post(
-            "/api/v1/join",
+            "/api/v1/join/class",
             json={"join_code": cohort.join_code},
             headers={**stu_headers, "X-Forwarded-For": "198.51.100.3"},
         )
         assert resp.status_code == 400
-        assert resp.json()["detail"] == "Invalid join code"
+        assert resp.json()["detail"] == "Invalid class code"

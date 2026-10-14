@@ -966,46 +966,56 @@ export default function AdminPage() {
           ) : (
             <div className="rounded-2xl border border-white/10 bg-slate-900/50 overflow-hidden">
               <div className="divide-y divide-white/5">
-                {joinRequests.map((req) => (
-                  <div key={req.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-white/[0.02] transition-colors">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold text-white text-sm">
-                          {req.user_full_name || req.user_username || 'Student'}
-                        </span>
-                        <span className="text-xs text-slate-500 font-mono">({req.user_email})</span>
-                        {req.requested_cohort_name && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            Requested: {req.requested_cohort_name}
+                {joinRequests.map((req) => {
+                  const isClassReq = req.request_type === 'class';
+                  return (
+                    <div key={req.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-white/[0.02] transition-colors">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="font-semibold text-white text-sm">
+                            {req.user_full_name || req.user_username || 'Student'}
                           </span>
-                        )}
+                          <span className="text-xs text-slate-500 font-mono">({req.user_email})</span>
+                          {isClassReq ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                              Class Request: {req.requested_cohort_name || 'Class'}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                              Institution Request
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          Requested on {new Date(req.created_at).toLocaleDateString()}
+                          {isClassReq && req.requested_cohort_name && (
+                            <span className="ml-2 text-slate-400">Target Class: <strong className="text-emerald-400">{req.requested_cohort_name}</strong></span>
+                          )}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-slate-500">
-                        Requested on {new Date(req.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
 
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      <button
-                        onClick={() => handleDecide(req.id, 'reject')}
-                        disabled={decidingId === req.id}
-                        className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1"
-                      >
-                        <XCircle size={14} /> Reject
-                      </button>
-                      <button
-                        onClick={() => {
-                          setApprovingReq(req);
-                          setAssignedCohortId(req.requested_cohort_id || '');
-                        }}
-                        disabled={decidingId === req.id}
-                        className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs rounded-lg transition-colors flex items-center gap-1"
-                      >
-                        <CheckCircle2 size={14} /> Approve...
-                      </button>
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <button
+                          onClick={() => handleDecide(req.id, 'reject')}
+                          disabled={decidingId === req.id}
+                          className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <XCircle size={14} /> Reject
+                        </button>
+                        <button
+                          onClick={() => handleDecide(req.id, 'approve')}
+                          disabled={decidingId === req.id}
+                          className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <CheckCircle2 size={14} />
+                          {isClassReq
+                            ? `Approve into ${req.requested_cohort_name || 'Class'}`
+                            : 'Approve Institution'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

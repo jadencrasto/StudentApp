@@ -95,6 +95,8 @@ class UserOut(BaseModel):
     institution:           Optional[InstitutionBriefOut] = None
     cohort:                Optional[CohortBriefOut] = None
     join_request_status:   Optional[str] = None
+    join_request_type:     Optional[str] = None
+    join_requested_cohort_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -568,6 +570,10 @@ class JoinCodeSubmitRequest(BaseModel):
     requested_cohort_id: Optional[UUID] = None
 
 
+class ClassCodeSubmitRequest(BaseModel):
+    join_code:           str = Field(min_length=1, max_length=32)
+
+
 class JoinResponseOut(BaseModel):
     status:  str
     message: str
@@ -587,6 +593,7 @@ class JoinRequestOut(BaseModel):
     institution_id:        UUID
     requested_cohort_id:   Optional[UUID] = None
     requested_cohort_name: Optional[str] = None
+    request_type:          str = "institution"
     status:                str
     decided_by:            Optional[UUID] = None
     decided_at:            Optional[datetime] = None

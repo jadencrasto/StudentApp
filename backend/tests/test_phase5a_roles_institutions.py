@@ -291,10 +291,10 @@ class TestStudentJoinFlowAndRoleEscalation:
         student_token = await login_and_get_token(client, student.email)
         student_headers = {"Authorization": f"Bearer {student_token}"}
 
-        # Submit join code
+        # Submit institution join code
         join_resp = await client.post(
             "/api/v1/join",
-            json={"join_code": inst.join_code, "requested_cohort_id": str(cohort.id)},
+            json={"join_code": inst.join_code},
             headers=student_headers,
         )
         assert join_resp.status_code == 200, join_resp.text
@@ -326,24 +326,54 @@ class TestStudentJoinFlowAndRoleEscalation:
         assert len(req_list) == 1
         request_id = req_list[0]["id"]
         assert req_list[0]["user_email"] == student.email
-        assert req_list[0]["requested_cohort_name"] == "Grade 10-A"
+        assert req_list[0]["request_type"] == "institution"
 
-        # 4. Admin approves request
+        # 4. Admin approves institution request (Rule 2: never assigns class)
         decide_resp = await client.post(
             f"/api/v1/admin/join-requests/{request_id}/decide",
-            json={"action": "approve", "cohort_id": str(cohort.id)},
+            json={"action": "approve"},
             headers=admin_headers,
         )
         assert decide_resp.status_code == 200
         assert decide_resp.json()["status"] == "approved"
 
-        # 5. Student checks profile: now member of institution and cohort
+        # 5. Student checks profile: now member of institution, but cohort is None (State 4)
         student_me_after = await client.get("/api/v1/auth/me", headers=student_headers)
         assert student_me_after.status_code == 200
         stu_data = student_me_after.json()
-        assert stu_data["join_request_status"] == "approved"
         assert stu_data["institution"]["name"] == "Metropolitan High"
-        assert stu_data["cohort"]["name"] == "Grade 10-A"
+        assert stu_data["cohort"] is None
+
+        # 6. Step 2: Student submits class join code
+        cohort.join_code = generate_join_code()
+        cohort.join_code_enabled = True
+        await db_session.commit()
+
+        class_join_resp = await client.post(
+            "/api/v1/join/class",
+            json={"join_code": cohort.join_code},
+            headers=student_headers,
+        )
+        assert class_join_resp.status_code == 200
+        assert class_join_resp.json()["status"] == "pending"
+
+        # Admin approves class request
+        reqs_class_resp = await client.get("/api/v1/admin/join-requests?status_filter=pending", headers=admin_headers)
+        assert len(reqs_class_resp.json()) == 1
+        class_req_id = reqs_class_resp.json()[0]["id"]
+        assert reqs_class_resp.json()[0]["request_type"] == "class"
+        assert reqs_class_resp.json()[0]["requested_cohort_name"] == "Grade 10-A"
+
+        decide_class_resp = await client.post(
+            f"/api/v1/admin/join-requests/{class_req_id}/decide",
+            json={"action": "approve"},
+            headers=admin_headers,
+        )
+        assert decide_class_resp.status_code == 200
+
+        # Now student has both institution and cohort (State 7)
+        student_final = await client.get("/api/v1/auth/me", headers=student_headers)
+        assert student_final.json()["cohort"]["name"] == "Grade 10-A"
 
     async def test_wrong_code_and_inactive_institution_identical_error(self, client: AsyncClient, db_session: AsyncSession):
         # Setup inactive institution

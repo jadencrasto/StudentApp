@@ -1,4 +1,4 @@
-﻿import uuid
+import uuid
 import secrets
 from datetime import datetime
 from typing import Optional
@@ -489,6 +489,7 @@ async def list_join_requests(
                 institution_id=req.institution_id,
                 requested_cohort_id=req.requested_cohort_id,
                 requested_cohort_name=cohort.name if cohort else None,
+                request_type=req.request_type or ("class" if req.requested_cohort_id else "institution"),
                 status=req.status,
                 decided_by=req.decided_by,
                 decided_at=req.decided_at,
@@ -507,8 +508,15 @@ async def decide_join_request(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Admin: approve (and optionally assign a cohort) or reject a pending join request.
+    Admin: approve or reject a pending join request.
     Strictly isolated: An admin of institution A cannot touch requests of institution B.
+    Phase 5D Rules:
+      - Approving an institution request NEVER assigns a class (student enters class code later).
+      - Approving a class request re-checks on the server:
+        1. student is active and not archived
+        2. student.institution_id matches the admin's institution
+        3. student has no class assigned yet
+        4. the requested class belongs to this institution and is not archived/inactive
     """
     join_req = await get_institution_scoped_entity(
         db, JoinRequest, request_id, institution_id, not_found_detail="Join request not found"
@@ -525,18 +533,46 @@ async def decide_join_request(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
 
     if decision.action == "approve":
-        # Resolve cohort: either explicit from decision or the student's requested cohort
-        target_cohort_id = decision.cohort_id or join_req.requested_cohort_id
-        if target_cohort_id:
+        if join_req.request_type == "class":
+            # Requirement 3: Server re-checks on class approval
+            if not student.is_active or student.archived_at is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Student is deactivated or archived",
+                )
+            if student.institution_id != institution_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Student does not belong to your institution",
+                )
+            if student.cohort_id is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Student is already assigned to a class",
+                )
+            if not join_req.requested_cohort_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No class was specified in this class join request",
+                )
             cohort = await get_institution_scoped_entity(
-                db, Cohort, target_cohort_id, institution_id, not_found_detail="Specified cohort not found in your institution"
+                db, Cohort, join_req.requested_cohort_id, institution_id, not_found_detail="Class not found in your institution"
             )
-            student.cohort_id = cohort.id
-        else:
-            student.cohort_id = None
+            if not cohort.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Requested class is archived or inactive",
+                )
 
-        student.institution_id = institution_id
-        join_req.status = "approved"
+            student.cohort_id = cohort.id
+            join_req.status = "approved"
+
+        else:
+            # Requirement 2: Institution approval NEVER assigns a class
+            student.institution_id = institution_id
+            student.cohort_id = None
+            join_req.status = "approved"
+
     elif decision.action == "reject":
         join_req.status = "rejected"
 
@@ -562,6 +598,7 @@ async def decide_join_request(
         institution_id=join_req.institution_id,
         requested_cohort_id=join_req.requested_cohort_id,
         requested_cohort_name=cohort_name,
+        request_type=join_req.request_type,
         status=join_req.status,
         decided_by=join_req.decided_by,
         decided_at=join_req.decided_at,

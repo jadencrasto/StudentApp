@@ -46,6 +46,12 @@ async def build_user_out(user: User, db: AsyncSession) -> UserOut:
         .limit(1)
     )
     join_request_status = join_req.status if join_req else None
+    join_request_type = join_req.request_type if join_req else None
+    join_requested_cohort_name = None
+    if join_req and join_req.requested_cohort_id:
+        req_coh = await db.get(Cohort, join_req.requested_cohort_id)
+        if req_coh:
+            join_requested_cohort_name = req_coh.name
 
     return UserOut(
         id=user.id,
@@ -64,6 +70,8 @@ async def build_user_out(user: User, db: AsyncSession) -> UserOut:
         institution=institution_out,
         cohort=cohort_out,
         join_request_status=join_request_status,
+        join_request_type=join_request_type,
+        join_requested_cohort_name=join_requested_cohort_name,
     )
 
 
