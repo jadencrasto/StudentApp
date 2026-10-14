@@ -1,17 +1,20 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Uuid, ForeignKey, JSON
+from sqlalchemy import String, Boolean, DateTime, Uuid, ForeignKey, JSON, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        Index("ix_users_institution_role", "institution_id", "role"),
+    )
 
     id:                    Mapped[uuid.UUID]  = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email:                 Mapped[str]        = mapped_column(String(255), unique=True, nullable=False, index=True)
     username:              Mapped[str]        = mapped_column(String(100), unique=True, nullable=False)
-    full_name:             Mapped[str | None] = mapped_column(String(255))
+    full_name:             Mapped[str | None] = mapped_column(String(255), index=True)
     hashed_password:       Mapped[str]        = mapped_column(nullable=False)
     is_active:             Mapped[bool]       = mapped_column(Boolean, default=True)
     created_at:            Mapped[datetime]   = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
@@ -28,6 +31,12 @@ class User(Base):
     location:              Mapped[str | None] = mapped_column(String(255), nullable=True)
     institution_name_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
     extra_info:            Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+    # Phase 6A: Student Management & Archiving
+    created_by_admin:      Mapped[bool]       = mapped_column(Boolean, default=False, nullable=False)
+    archived_at:           Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_changed_at:   Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    token_version:         Mapped[int]        = mapped_column(Integer, default=1, nullable=False)
 
     # Relationships
     institution       = relationship("Institution", back_populates="users", foreign_keys=[institution_id])

@@ -161,6 +161,33 @@ async def ensure_phase5a_columns() -> None:
             except Exception:
                 pass  # column already exists
 
+
+async def ensure_phase6a_columns() -> None:
+    """Add Phase 6A student management and token columns to users table (SQLite dev only)."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+    new_columns = [
+        "ALTER TABLE users ADD COLUMN created_by_admin BOOLEAN DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN archived_at TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN password_changed_at TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1",
+    ]
+    new_indexes = [
+        "CREATE INDEX IF NOT EXISTS ix_users_full_name ON users (full_name)",
+        "CREATE INDEX IF NOT EXISTS ix_users_institution_role ON users (institution_id, role)",
+    ]
+    async with engine.begin() as conn:
+        for stmt in new_columns:
+            try:
+                await conn.exec_driver_sql(stmt)
+            except Exception:
+                pass
+        for stmt in new_indexes:
+            try:
+                await conn.exec_driver_sql(stmt)
+            except Exception:
+                pass
+
 # Session factory
 AsyncSessionLocal = async_sessionmaker(
     engine,
