@@ -10,6 +10,7 @@ from app.models.chat import ChatConversation, ChatMessage
 from app.models.institution import Institution, Cohort, JoinRequest, generate_join_code
 from app.models.class_attendance import ClassAttendanceRecord, ClassAttendanceChangeLog
 from app.models.class_timetable import ClassTimetable
+from app.models.class_marks import Exam, Mark, MarkChangeRecord
 
 __all__ = [
     "User",
@@ -23,5 +24,6 @@ __all__ = [
     "Institution", "Cohort", "JoinRequest", "generate_join_code",
     "ClassAttendanceRecord", "ClassAttendanceChangeLog",
     "ClassTimetable",
+    "Exam", "Mark", "MarkChangeRecord",
 ]
 

@@ -6,7 +6,8 @@ import { FallingPattern } from '../ui/falling-pattern'
 import { useClassNotifications } from '../../hooks/useClassNotifications'
 import {
   LayoutDashboard, BookOpen, CalendarCheck, Trophy,
-  Upload, LogOut, GraduationCap, Grid3X3, Newspaper, School, MessageSquare, FileText, Menu, X, ShieldCheck
+  Upload, LogOut, GraduationCap, Grid3X3, Newspaper, School, MessageSquare, FileText, Menu, X, ShieldCheck,
+  Award
 } from 'lucide-react'
 
 // Student Navigation items
@@ -14,6 +15,7 @@ const STUDENT_NAV = [
   { to: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/dashboard/assignments',  icon: BookOpen,         label: 'Assignments' },
   { to: '/dashboard/attendance',   icon: CalendarCheck,    label: 'Attendance' },
+  { to: '/dashboard/marks',        icon: Award,            label: 'Marks' },
   { to: '/dashboard/activities',   icon: Trophy,           label: 'Activities' },
   { to: '/dashboard/timetable',    icon: Grid3X3,          label: 'Timetable' },
   { to: '/dashboard/events',       icon: Newspaper,        label: 'College Events' },

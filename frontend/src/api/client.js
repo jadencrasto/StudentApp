@@ -119,6 +119,32 @@ export const classTimetableAPI = {
   getStudentClassTimetable: () => client.get('/student/class-timetable'),
 };
 
+export const classMarksAPI = {
+  // Admin Endpoints
+  listCohortExams:     (cohortId) => client.get(`/admin/marks/cohorts/${cohortId}/exams`),
+  createExam:          (data) => client.post('/admin/marks/exams', data),
+  getExam:             (examId) => client.get(`/admin/marks/exams/${examId}`),
+  updateExam:          (examId, data) => client.patch(`/admin/marks/exams/${examId}`, data),
+  deleteExam:          (examId) => client.delete(`/admin/marks/exams/${examId}`),
+  publishExam:         (examId) => client.post(`/admin/marks/exams/${examId}/publish`),
+  unpublishExam:       (examId) => client.post(`/admin/marks/exams/${examId}/unpublish`),
+  getRosterMarks:      (examId) => client.get(`/admin/marks/exams/${examId}/roster`),
+  saveMarks:           (examId, data) => client.post(`/admin/marks/exams/${examId}/marks`, data),
+  downloadTemplate:    (examId) => client.get(`/admin/marks/exams/${examId}/template`, { responseType: 'blob' }),
+  previewUpload:       (examId, file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post(`/admin/marks/exams/${examId}/preview`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  downloadErrorReport: (examId, badRows) => client.post(`/admin/marks/exams/${examId}/error-report`, badRows, { responseType: 'blob' }),
+  confirmUpload:       (examId, data) => client.post(`/admin/marks/exams/${examId}/confirm`, data),
+
+  // Student Endpoint
+  getStudentMarks:     () => client.get('/student/marks'),
+};
+
 export const studentAPI = {
   updateProfile: (data) => client.patch('/me/profile', data),
   join:          (data) => client.post('/join', data),

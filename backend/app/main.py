@@ -17,7 +17,7 @@ from app.database import (
     ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column,
     ensure_activity_recurrence_columns, ensure_notification_columns,
     ensure_attendance_slot_columns, ensure_phase5a_columns, ensure_phase6a_columns,
-    ensure_phase6b_tables, ensure_phase6c_tables,
+    ensure_phase6b_tables, ensure_phase6c_tables, ensure_phase6d_tables,
 )
 from app.models import *  # noqa
 
@@ -38,6 +38,7 @@ from app.api.join import router as join_router
 from app.api.admin_students import router as admin_students_router
 from app.api.class_attendance import router as class_attendance_router
 from app.api.class_timetable import router as class_timetable_router
+from app.api.class_marks import router as class_marks_router
 
 
 @asynccontextmanager
@@ -57,6 +58,7 @@ async def lifespan(app: FastAPI):
         await ensure_phase6a_columns()
         await ensure_phase6b_tables()
         await ensure_phase6c_tables()
+        await ensure_phase6d_tables()
     # Seed demo user for development only if explicitly enabled
     if settings.SEED_DEMO_USER:
         await _seed_demo_user()
@@ -151,6 +153,7 @@ api_router.include_router(join_router)
 api_router.include_router(admin_students_router)
 api_router.include_router(class_attendance_router)
 api_router.include_router(class_timetable_router)
+api_router.include_router(class_marks_router)
 
 app.include_router(api_router)
 app.include_router(extract_router)

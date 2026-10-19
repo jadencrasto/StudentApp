@@ -25,6 +25,7 @@ const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage'))
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage'))
 const SuperAdminPage = lazy(() => import('./pages/superadmin/SuperAdminPage'))
 const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
+const MarksPage = lazy(() => import('./pages/MarksPage'))
 
 const pageTransition = {
   initial: { opacity: 0, y: 8 },
@@ -162,6 +163,7 @@ export default function App() {
             <Route index element={<ErrorBoundary><motion.div {...pageTransition} key="dashboard"><DashboardPage /></motion.div></ErrorBoundary>} />
             <Route path="assignments" element={<ErrorBoundary><motion.div {...pageTransition} key="assignments"><AssignmentsPage /></motion.div></ErrorBoundary>} />
             <Route path="attendance" element={<ErrorBoundary><motion.div {...pageTransition} key="attendance"><AttendancePage /></motion.div></ErrorBoundary>} />
+            <Route path="marks" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="marks"><MarksPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="activities" element={<ErrorBoundary><motion.div {...pageTransition} key="activities"><ActivitiesPage /></motion.div></ErrorBoundary>} />
             <Route path="timetable" element={<ErrorBoundary><motion.div {...pageTransition} key="timetable"><TimetableSetupPage /></motion.div></ErrorBoundary>} />
             <Route path="events" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="events"><CollegeEventsPage /></motion.div></Suspense></ErrorBoundary>} />

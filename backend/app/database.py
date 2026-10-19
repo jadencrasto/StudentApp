@@ -277,6 +277,86 @@ async def ensure_phase6c_tables() -> None:
         except Exception:
             pass
 
+
+async def ensure_phase6d_tables() -> None:
+    """Create exams, marks, and mark_change_records tables for SQLite (Phase 6D)."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+    async with engine.begin() as conn:
+        try:
+            await conn.exec_driver_sql("""
+                CREATE TABLE IF NOT EXISTS exams (
+                    id VARCHAR(36) PRIMARY KEY,
+                    institution_id VARCHAR(36) NOT NULL,
+                    cohort_id VARCHAR(36) NOT NULL,
+                    exam_type VARCHAR(50) NOT NULL,
+                    title VARCHAR(150) NOT NULL,
+                    title_normalized VARCHAR(150) NOT NULL,
+                    subject VARCHAR(100) NOT NULL,
+                    subject_normalized VARCHAR(100) NOT NULL,
+                    max_marks NUMERIC(6, 2) NOT NULL,
+                    exam_date DATE,
+                    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    created_by VARCHAR(36),
+                    published_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    CONSTRAINT uq_cohort_exam_type_subject_title UNIQUE (cohort_id, exam_type, subject_normalized, title_normalized),
+                    FOREIGN KEY (institution_id) REFERENCES institutions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (cohort_id) REFERENCES cohorts(id) ON DELETE CASCADE,
+                    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+                )
+            """)
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_exams_cohort_status ON exams (cohort_id, status)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_exams_institution ON exams (institution_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_exams_cohort ON exams (cohort_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_exams_status ON exams (status)")
+
+            await conn.exec_driver_sql("""
+                CREATE TABLE IF NOT EXISTS marks (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_id VARCHAR(36) NOT NULL,
+                    student_id VARCHAR(36) NOT NULL,
+                    marks_obtained NUMERIC(6, 2),
+                    is_absent BOOLEAN NOT NULL DEFAULT 0,
+                    entered_by VARCHAR(36),
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    CONSTRAINT uq_exam_student_mark UNIQUE (exam_id, student_id),
+                    FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+                    FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (entered_by) REFERENCES users(id) ON DELETE SET NULL
+                )
+            """)
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_marks_exam ON marks (exam_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_marks_student ON marks (student_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_marks_student_exam ON marks (student_id, exam_id)")
+
+            await conn.exec_driver_sql("""
+                CREATE TABLE IF NOT EXISTS mark_change_records (
+                    id VARCHAR(36) PRIMARY KEY,
+                    mark_id VARCHAR(36) NOT NULL,
+                    exam_id VARCHAR(36) NOT NULL,
+                    student_id VARCHAR(36) NOT NULL,
+                    changed_by VARCHAR(36),
+                    previous_marks NUMERIC(6, 2),
+                    new_marks NUMERIC(6, 2),
+                    previous_absent BOOLEAN NOT NULL DEFAULT 0,
+                    new_absent BOOLEAN NOT NULL DEFAULT 0,
+                    reason VARCHAR(255) NOT NULL,
+                    changed_at TIMESTAMP NOT NULL,
+                    FOREIGN KEY (mark_id) REFERENCES marks(id) ON DELETE CASCADE,
+                    FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+                    FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+                )
+            """)
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_mark_change_mark ON mark_change_records (mark_id)")
+            await conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_mark_change_exam ON mark_change_records (exam_id)")
+        except Exception:
+            pass
+
+
 # Session factory
 AsyncSessionLocal = async_sessionmaker(
     engine,
