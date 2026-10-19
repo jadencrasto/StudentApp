@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
+import { useAuth } from '../../hooks/useAuth'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CONFIG_KEY    = 'sais_college_config'       // { name, url }
@@ -230,10 +231,20 @@ export default function CollegeEventsPage() {
   const [typeFilter, setTypeFilter]   = useState('All')
   const [sortOrder, setSortOrder]     = useState('latest')   // 'latest' | 'oldest'
 
-  // ── Load config + cache from localStorage on mount ──────────────────────────
+  const { user, institution } = useAuth()
+  const isInstitutionStudent = Boolean(user?.institution_id)
+
+  // ── Load config + cache on mount ───────────────────────────────────────────
   useEffect(() => {
+    if (isInstitutionStudent) {
+      // Institution student: strictly load fresh from server (no browser cache)
+      setConfig({ name: institution?.name || 'Institution Academic Events', url: '' })
+      fetchInstitutionEvents()
+      return
+    }
+
+    // Independent student: keep existing localStorage cache behavior
     try {
-      // Remove old key from before the source_url fix (forces fresh data)
       localStorage.removeItem('sais_college_events_page_state')
 
       const raw = localStorage.getItem(CONFIG_KEY)
@@ -241,28 +252,46 @@ export default function CollegeEventsPage() {
       const cfg = JSON.parse(raw)
       if (cfg?.name && cfg?.url) {
         setConfig(cfg)
-        // Load cached events — only accept v2+ cache (has pdf_url field)
         const cached = JSON.parse(localStorage.getItem(EVENTS_KEY) || 'null')
         const isV2 = cached?.version === 2
         if (isV2 && cached?.url === cfg.url && Array.isArray(cached.events) && cached.events.length > 0) {
-          setEvents(cached.events)
+          // Student view: show ONLY events that have a date
+          const dated = cached.events.filter(e => e.date && e.date.trim())
+          setEvents(dated)
           setFetchedAt(cached.fetchedAt)
         }
       }
     } catch {
       // ignore corrupt storage
     }
-  }, [])
+  }, [isInstitutionStudent, institution])
 
+  async function fetchInstitutionEvents() {
+    setLoading(true)
+    setError(null)
+    try {
+      const { data } = await client.get('/events')
+      // Student view: strictly filter for dated events only
+      const dated = (data || []).filter(e => e.date && e.date.trim())
+      setEvents(dated)
+      setFetchedAt(Date.now())
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Could not fetch institution events.'
+      setError(msg)
+      toast.error('Failed to load events')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  // ── Auto-fetch when config is first set (no cached data) ────────────────────
+  // ── Auto-fetch for independent students ────────────────────────────────────
   useEffect(() => {
-    if (config && events.length === 0) {
+    if (!isInstitutionStudent && config && events.length === 0) {
       fetchEvents(config)
     }
-  }, [config]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [config, isInstitutionStudent]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Fetch ────────────────────────────────────────────────────────────────────
+  // ── Fetch for independent students ──────────────────────────────────────────
   async function fetchEvents(cfg) {
     if (!cfg?.url) return
     setLoading(true)
@@ -273,10 +302,12 @@ export default function CollegeEventsPage() {
         timeout: 320000,
       })
       const now = Date.now()
-      setEvents(data)
+      // Student view: show ONLY events that have a date
+      const dated = (data || []).filter(e => e.date && e.date.trim())
+      setEvents(dated)
       setFetchedAt(now)
-      localStorage.setItem(EVENTS_KEY, JSON.stringify({ version: 2, url: cfg.url, fetchedAt: now, events: data }))
-      toast.success(`Fetched ${data.length} event${data.length !== 1 ? 's' : ''}`)
+      localStorage.setItem(EVENTS_KEY, JSON.stringify({ version: 2, url: cfg.url, fetchedAt: now, events: dated }))
+      toast.success(`Fetched ${dated.length} event${dated.length !== 1 ? 's' : ''}`)
     } catch (err) {
       const msg = err.response?.data?.detail || `Could not fetch events from ${cfg.url}. Check the URL or try again.`
       setError(msg)
@@ -285,6 +316,7 @@ export default function CollegeEventsPage() {
       setLoading(false)
     }
   }
+
 
   // ── Handle setup save ────────────────────────────────────────────────────────
   function handleSave(newConfig) {
@@ -367,7 +399,7 @@ export default function CollegeEventsPage() {
         </div>
 
         <button
-          onClick={() => fetchEvents(config)}
+          onClick={() => isInstitutionStudent ? fetchInstitutionEvents() : fetchEvents(config)}
           disabled={loading}
           className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-bold rounded-xl text-sm transition-all"
         >
@@ -385,16 +417,21 @@ export default function CollegeEventsPage() {
       >
         <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5">
           <School size={13} className="text-emerald-400" />
-          <span className="text-slate-200 text-xs font-semibold">{config.name}</span>
+          <span className="text-slate-200 text-xs font-semibold">{config?.name || 'Institution Events'}</span>
         </div>
-        <span className="text-slate-500 text-xs">{new URL(config.url).hostname}</span>
-        <button
-          onClick={() => setShowSetup(true)}
-          className="text-xs text-emerald-400/70 hover:text-emerald-400 underline underline-offset-2 transition-colors"
-        >
-          Change College
-        </button>
+        {config?.url && (
+          <span className="text-slate-500 text-xs">{new URL(config.url).hostname}</span>
+        )}
+        {!isInstitutionStudent && (
+          <button
+            onClick={() => setShowSetup(true)}
+            className="text-xs text-emerald-400/70 hover:text-emerald-400 underline underline-offset-2 transition-colors"
+          >
+            Change College
+          </button>
+        )}
       </motion.div>
+
 
       {lastFetchedLabel && (
         <p className="text-slate-600 text-xs mb-5">Last fetched: {lastFetchedLabel}</p>

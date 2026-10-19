@@ -5,13 +5,15 @@ import {
   PowerOff, CheckCircle2, XCircle, RefreshCw, AlertCircle, X, Clock, Layers,
   UserPlus, FileSpreadsheet, Upload, Download, Search, Filter, ArrowRightLeft,
   UserCheck, UserX, ChevronLeft, ChevronRight, FileWarning, Eye, ShieldAlert,
-  CalendarCheck, Calendar, Award
+  CalendarCheck, Calendar, Award, CalendarDays
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../hooks/useAuth';
 import { institutionsAPI, adminStudentsAPI, classAttendanceAPI } from '../../api/client';
 import AdminTimetableTab from './AdminTimetableTab';
 import AdminMarksTab from './AdminMarksTab';
+import AdminEventsTab from './AdminEventsTab';
+
 
 
 export default function AdminPage() {
@@ -698,6 +700,19 @@ export default function AdminPage() {
           <Award size={16} />
           <span>Marks</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('events')}
+          className={`pb-3 px-4 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
+            activeTab === 'events'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <CalendarDays size={16} />
+          <span>College Events</span>
+        </button>
+
 
 
         <button
@@ -1401,6 +1416,14 @@ export default function AdminPage() {
       {activeTab === 'marks' && (
         <AdminMarksTab cohorts={cohorts} institution={institution} />
       )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          TAB: COLLEGE EVENTS (Phase 6E)
+      ───────────────────────────────────────────────────────────── */}
+      {activeTab === 'events' && (
+        <AdminEventsTab />
+      )}
+
 
 
       {/* ─────────────────────────────────────────────────────────────

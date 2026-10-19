@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from app.college_events.junk_filter import is_junk_event
+
 DATE_PATTERNS = [
     r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
     r"\b\d{1,2}\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{2,4}\b",
@@ -69,6 +71,10 @@ def parse_events_from_page(text: str, source_url: str, college_name: str) -> lis
 
         has_event_keyword = any(k in lowered for k in ["exam", "notice", "calendar", "timetable", "academic", "holiday", "lecture", "assignment", "submission", "result", "orientation", "workshop", "vacation", "semester", "term"]) 
         if not has_event_keyword and not (is_calendar_source and date_value):
+            continue
+
+        is_junk, _ = is_junk_event(line, source_url=source_url, has_date=bool(date_value))
+        if is_junk:
             continue
 
         event_name = line[:180]

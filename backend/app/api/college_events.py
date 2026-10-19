@@ -18,9 +18,68 @@ from app.config import settings
 from app.database import get_db
 from app.services.gemini_event_extractor import GeminiEventExtractor
 
+import re
+import uuid
+from uuid import UUID
+from pydantic import BaseModel, Field
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy import select, and_, or_, func
+from app.core.dependencies import require_admin, get_current_user, get_admin_institution_id
+from app.core.security import decode_access_token
+from app.models.user import User
+from app.models.integrations import CollegeEvent
+from app.college_events.safe_scraper import validate_safe_url, extract_events_safe
+from app.college_events.database import save_events_with_fallback, _normalize_title, _normalize_date
+from app.core.rate_limiter import quota_cooldown_tracker
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["College Events"])
+
+# Rate limit tracker for admin scrapes: institution_id -> list of timestamps
+_institution_scrape_times: dict[str, list[float]] = {}
+SCRAPE_MAX_PER_WINDOW = 5
+SCRAPE_WINDOW_SECONDS = 600
+
+class ManualEventCreate(BaseModel):
+    event_name: str = Field(..., min_length=2, max_length=500)
+    event_type: str = Field(default="Event", max_length=120)
+    event_date: str | None = Field(default=None, max_length=120)
+    semester: str | None = Field(default=None, max_length=120)
+    department: str | None = Field(default=None, max_length=255)
+    source_url: str | None = Field(default=None)
+
+class EventUpdate(BaseModel):
+    event_name: str | None = Field(default=None, max_length=500)
+    event_type: str | None = Field(default=None, max_length=120)
+    event_date: str | None = Field(default=None, max_length=120)
+    semester: str | None = Field(default=None, max_length=120)
+    department: str | None = Field(default=None, max_length=255)
+    is_hidden: bool | None = None
+
+class AdminScrapeRequest(BaseModel):
+    college_url: str
+    college_name: str = "College"
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    if not credentials:
+        return None
+    try:
+        payload = decode_access_token(credentials.credentials)
+        if not payload or not payload.get("sub"):
+            return None
+        user_id = UUID(payload["sub"])
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user and user.is_active:
+            return user
+    except Exception:
+        pass
+    return None
+
 
 # ── In-memory cache keyed by college URL ─────────────────────────────────────
 _url_cache: dict[str, tuple[float, list[dict]]] = {}
@@ -255,8 +314,67 @@ async def list_colleges():
 async def get_events(
     college: str | None = Query(default=None, min_length=2),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
 ):
     try:
+        # Case 1: Student belongs to an institution -> strictly scoped to institution
+        if current_user and current_user.institution_id:
+            stmt = select(CollegeEvent).where(
+                CollegeEvent.institution_id == current_user.institution_id,
+                CollegeEvent.is_hidden == False,
+                CollegeEvent.event_date.isnot(None),
+                CollegeEvent.event_date != "",
+            ).order_by(CollegeEvent.event_date.desc())
+            rows = (await db.execute(stmt)).scalars().all()
+            return [
+                {
+                    "id": str(r.id),
+                    "title": r.event_name,
+                    "event_name": r.event_name,
+                    "type": r.event_type,
+                    "event_type": r.event_type,
+                    "date": r.event_date,
+                    "start": r.event_date,
+                    "end": r.event_date,
+                    "semester": r.semester,
+                    "department": r.department,
+                    "source_url": r.source_url,
+                    "college": r.college,
+                }
+                for r in rows
+            ]
+
+        # Case 2: Independent student -> unscoped events (institution_id IS NULL)
+        stmt = select(CollegeEvent).where(
+            CollegeEvent.institution_id.is_(None),
+            CollegeEvent.is_hidden == False,
+            CollegeEvent.event_date.isnot(None),
+            CollegeEvent.event_date != "",
+        )
+        if college:
+            stmt = stmt.where(CollegeEvent.college.ilike(f"%{college}%"))
+        stmt = stmt.order_by(CollegeEvent.event_date.desc())
+        rows = (await db.execute(stmt)).scalars().all()
+        if rows:
+            return [
+                {
+                    "id": str(r.id),
+                    "title": r.event_name,
+                    "event_name": r.event_name,
+                    "type": r.event_type,
+                    "event_type": r.event_type,
+                    "date": r.event_date,
+                    "start": r.event_date,
+                    "end": r.event_date,
+                    "semester": r.semester,
+                    "department": r.department,
+                    "source_url": r.source_url,
+                    "college": r.college,
+                }
+                for r in rows
+            ]
+
+        # Fallback to configured colleges if DB has no events for selected college
         selected_college = college
         if not selected_college:
             loader = CollegeLoader()
@@ -276,6 +394,205 @@ async def get_events(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch events: {exc}")
+
+
+# ── Admin Endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/admin/events")
+@router.get("/events/admin")
+async def get_admin_events(
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin),
+):
+    inst_id = get_admin_institution_id(admin_user)
+    stmt = select(CollegeEvent).where(
+        CollegeEvent.institution_id == inst_id
+    ).order_by(CollegeEvent.created_at.desc())
+    rows = (await db.execute(stmt)).scalars().all()
+
+    dated = []
+    needs_date = []
+    for r in rows:
+        item = {
+            "id": str(r.id),
+            "institution_id": str(r.institution_id) if r.institution_id else None,
+            "event_name": r.event_name,
+            "title": r.event_name,
+            "event_type": r.event_type,
+            "type": r.event_type,
+            "event_date": r.event_date,
+            "date": r.event_date,
+            "semester": r.semester,
+            "department": r.department,
+            "source_url": r.source_url,
+            "is_hidden": r.is_hidden,
+            "is_manual": r.is_manual,
+            "college": r.college,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        if r.event_date and r.event_date.strip():
+            dated.append(item)
+        else:
+            needs_date.append(item)
+
+    return {
+        "events": dated,
+        "needs_date": needs_date,
+        "stats": {
+            "total": len(rows),
+            "dated_count": len(dated),
+            "needs_date_count": len(needs_date),
+            "hidden_count": sum(1 for r in rows if r.is_hidden),
+        }
+    }
+
+
+@router.post("/admin/events/manual")
+@router.post("/events/manual")
+async def create_manual_event(
+    payload: ManualEventCreate,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin),
+):
+    inst_id = get_admin_institution_id(admin_user)
+
+    norm_title = _normalize_title(payload.event_name)
+    norm_date = _normalize_date(payload.event_date)
+
+    existing_stmt = select(CollegeEvent).where(CollegeEvent.institution_id == inst_id)
+    existing_rows = (await db.execute(existing_stmt)).scalars().all()
+    for ex in existing_rows:
+        if _normalize_title(ex.event_name) == norm_title and _normalize_date(ex.event_date) == norm_date:
+            raise HTTPException(
+                status_code=409,
+                detail="An event with the same title and date already exists for this institution.",
+            )
+
+    new_ev = CollegeEvent(
+        institution_id=inst_id,
+        college=admin_user.institution.name if admin_user.institution else "College",
+        event_name=payload.event_name.strip(),
+        event_type=payload.event_type.strip(),
+        event_date=payload.event_date.strip() if payload.event_date else None,
+        semester=payload.semester.strip() if payload.semester else None,
+        department=payload.department.strip() if payload.department else None,
+        source_url=payload.source_url.strip() if payload.source_url else "manual",
+        is_manual=True,
+        is_hidden=False,
+    )
+    db.add(new_ev)
+    await db.commit()
+    await db.refresh(new_ev)
+    return {
+        "message": "Manual event created successfully",
+        "id": str(new_ev.id),
+        "event_name": new_ev.event_name,
+        "event_date": new_ev.event_date,
+        "is_manual": new_ev.is_manual,
+    }
+
+
+@router.patch("/admin/events/{event_id}")
+@router.patch("/events/{event_id}")
+async def update_event(
+    event_id: UUID,
+    payload: EventUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin),
+):
+    inst_id = get_admin_institution_id(admin_user)
+    ev = await db.get(CollegeEvent, event_id)
+    if not ev or ev.institution_id != inst_id:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    if payload.event_name is not None:
+        ev.event_name = payload.event_name.strip()
+    if payload.event_type is not None:
+        ev.event_type = payload.event_type.strip()
+    if payload.event_date is not None:
+        ev.event_date = payload.event_date.strip() if payload.event_date else None
+    if payload.semester is not None:
+        ev.semester = payload.semester.strip() if payload.semester else None
+    if payload.department is not None:
+        ev.department = payload.department.strip() if payload.department else None
+    if payload.is_hidden is not None:
+        ev.is_hidden = payload.is_hidden
+
+    await db.commit()
+    await db.refresh(ev)
+    return {
+        "message": "Event updated successfully",
+        "id": str(ev.id),
+        "is_hidden": ev.is_hidden,
+        "event_date": ev.event_date,
+    }
+
+
+@router.post("/admin/events/scrape")
+@router.post("/events/scrape")
+async def trigger_admin_scrape(
+    payload: AdminScrapeRequest,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin),
+):
+    inst_id = get_admin_institution_id(admin_user)
+    inst_key = str(inst_id)
+
+    # 1. Rate limit check: max 5 calls per 10 min
+    now = time.time()
+    recent = [t for t in _institution_scrape_times.get(inst_key, []) if now - t < SCRAPE_WINDOW_SECONDS]
+    if len(recent) >= SCRAPE_MAX_PER_WINDOW:
+        raise HTTPException(
+            status_code=429,
+            detail="Scraping rate limit exceeded (max 5 scrapes per 10 minutes). Please try again later.",
+        )
+    recent.append(now)
+    _institution_scrape_times[inst_key] = recent
+
+    # 2. SSRF validation on the initial URL
+    is_safe, reason = validate_safe_url(payload.college_url)
+    if not is_safe:
+        raise HTTPException(status_code=400, detail=f"Target URL rejected by safety policy: {reason}")
+
+    # 3. Check AI quota cooldown
+    if quota_cooldown_tracker.is_in_cooldown():
+        raise HTTPException(
+            status_code=429,
+            detail="AI service is currently in quota cooldown. Please add events manually using the 'Add Event' form.",
+        )
+
+    # 4. Scrape safely (runs in thread so we don't block the async loop)
+    college_name = payload.college_name or (admin_user.institution.name if admin_user.institution else "College")
+    try:
+        scraped_events = await asyncio.to_thread(
+            extract_events_safe,
+            start_url=payload.college_url,
+            college_name=college_name,
+            max_pages=15
+        )
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=f"Scraper safety halt: {val_err}")
+    except Exception as exc:
+        logger.error("Scraper error: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Scraping failed: {exc}")
+
+    # 5. Tag events with institution_id and is_manual = False
+    for ev in scraped_events:
+        ev["institution_id"] = inst_id
+        ev["is_manual"] = False
+        ev["is_hidden"] = False
+
+    # 6. Save with fallback and duplicate skip (does not overwrite manual rows)
+    fallback_file = Path("./uploads/college_events_fallback.json")
+    saved = await save_events_with_fallback(db, scraped_events, fallback_file)
+    await db.commit()
+
+    return {
+        "message": f"Successfully scraped and processed {len(saved)} events",
+        "total_scraped": len(scraped_events),
+        "persisted_count": len(saved),
+    }
+
 
 
 @router.get("/college-events")

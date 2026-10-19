@@ -91,15 +91,15 @@ def start_scheduler():
         id="mark_overdue",
         replace_existing=True,
     )
-    # Crawl configured college sites every hour (cron-ready)
+    # Crawl configured college sites once a day at 2:00 AM (changed from hourly)
     scheduler.add_job(
         _college_events_sync_job,
-        trigger=CronTrigger(minute=0),
+        trigger=CronTrigger(hour=2, minute=0),
         id="college_events_sync",
         replace_existing=True,
     )
     scheduler.start()
-    logger.info("Scheduler started: daily_alerts at 8AM, mark_overdue at midnight, college_events_sync hourly")
+    logger.info("Scheduler started: daily_alerts at 8AM, mark_overdue at midnight, college_events_sync daily at 2AM")
 
 
 def stop_scheduler():
