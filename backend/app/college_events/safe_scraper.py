@@ -16,6 +16,11 @@ from app.services.gemini_event_extractor import GeminiEventExtractor
 
 logger = logging.getLogger(__name__)
 
+class Scraper503Error(Exception):
+    """Raised when upstream web server or AI service returns 503 Service Unavailable."""
+    pass
+
+
 CLOUD_METADATA_IPS = {
     "169.254.169.254",   # AWS / GCP / Azure metadata
     "fd00:ec2::254",      # AWS IPv6 metadata
@@ -146,6 +151,9 @@ def safe_fetch_page(
             current_url = urljoin(current_url, loc)
             continue
 
+        if resp.status_code == 503:
+            raise Scraper503Error(f"Target web server at {current_url} returned 503 Service Unavailable")
+
         if resp.status_code != 200:
             return None
 
@@ -254,9 +262,14 @@ def extract_events_safe(
                         logger.warning("Gemini quota exhausted during event scrape. Setting cooldown.")
                         quota_cooldown_tracker.set_cooldown(300.0)
                         break
-                    elif "503" in err_str and attempt == 0:
-                        time.sleep(1.0)
-                        continue
+                    elif "503" in err_str:
+                        if attempt == 0:
+                            logger.info("AI service returned 503. Retrying once after 1s...")
+                            time.sleep(1.0)
+                            continue
+                        else:
+                            logger.warning("AI service 503 persisted after retry.")
+                            raise Scraper503Error("AI service returned 503 Service Unavailable after retry.")
                     else:
                         logger.warning("Gemini event extraction error: %s", ai_exc)
                         break

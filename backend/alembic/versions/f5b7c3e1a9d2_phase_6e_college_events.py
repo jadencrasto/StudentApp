@@ -30,28 +30,32 @@ def upgrade() -> None:
         if 'is_manual' not in columns:
             op.add_column('college_events', sa.Column('is_manual', sa.Boolean(), server_default=sa.text('false'), nullable=False))
             
-        indexes = [idx['name'] for idx in insp.get_indexes('college_events')]
-        if 'uq_college_events_dedup' not in indexes:
-            # Check dialect: Postgres supports expressions in unique index
-            if bind.dialect.name == 'postgresql':
-                op.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS uq_college_events_dedup ON college_events (
-                        COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid),
-                        LOWER(REGEXP_REPLACE(TRIM(event_name), '\\s+', ' ', 'g')),
-                        COALESCE(TRIM(event_date), '')
-                    );
-                """)
-            else:
-                # SQLite fallback
-                try:
-                    op.create_index(
-                        'uq_college_events_dedup',
-                        'college_events',
-                        ['institution_id', 'event_name', 'event_date'],
-                        unique=True
-                    )
-                except Exception:
-                    pass
+        if bind.dialect.name == 'postgresql':
+            # Drop old indexes if they exist
+            op.execute("DROP INDEX IF EXISTS uq_college_events_dedupe;")
+            op.execute("DROP INDEX IF EXISTS uq_college_events_dedup;")
+            # Create single correct unique index (includes college when institution_id IS NULL)
+            op.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_college_events_dedup ON college_events (
+                    COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid),
+                    (CASE WHEN institution_id IS NULL THEN LOWER(TRIM(COALESCE(college, ''))) ELSE '' END),
+                    LOWER(REGEXP_REPLACE(TRIM(event_name), '\\s+', ' ', 'g')),
+                    COALESCE(TRIM(event_date), '')
+                );
+            """)
+        else:
+            # SQLite fallback
+            try:
+                op.execute("DROP INDEX IF EXISTS uq_college_events_dedupe;")
+                op.execute("DROP INDEX IF EXISTS uq_college_events_dedup;")
+                op.create_index(
+                    'uq_college_events_dedup',
+                    'college_events',
+                    ['institution_id', 'college', 'event_name', 'event_date'],
+                    unique=True
+                )
+            except Exception:
+                pass
 
 
 def downgrade() -> None:

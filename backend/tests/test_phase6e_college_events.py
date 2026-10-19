@@ -323,3 +323,193 @@ async def test_admin_events_view_needs_date_section(client: AsyncClient, sample_
     data2 = admin_res2.json()
     assert any(e["event_name"] == "Hackathon 2026" for e in data2["events"])
     assert not any(e["event_name"] == "Hackathon 2026" for e in data2["needs_date"])
+
+
+@pytest.mark.asyncio
+async def test_same_title_date_different_college_both_inserted(db_session: AsyncSession):
+    """
+    Verify that independent events (institution_id=None) with the exact same title
+    and date from DIFFERENT colleges are both inserted and never treated as duplicates.
+    """
+    from pathlib import Path
+    from app.college_events.database import save_events_with_fallback
+
+    events_to_insert = [
+        {
+            "college": "College Alpha",
+            "event_name": "National Tech Symposium 2026",
+            "date": "2026-03-15",
+            "event_type": "Event",
+            "source_url": "https://alpha.edu/tech",
+            "institution_id": None,
+        },
+        {
+            "college": "College Beta",
+            "event_name": "National Tech Symposium 2026",
+            "date": "2026-03-15",
+            "event_type": "Event",
+            "source_url": "https://beta.edu/tech",
+            "institution_id": None,
+        },
+    ]
+
+    fallback_file = Path("./uploads/test_college_fallback.json")
+    saved = await save_events_with_fallback(db_session, events_to_insert, fallback_file)
+    await db_session.commit()
+
+    assert len(saved) == 2
+
+    # Query DB to ensure both distinct rows exist
+    stmt = select(CollegeEvent).where(
+        CollegeEvent.event_name == "National Tech Symposium 2026"
+    )
+    rows = (await db_session.execute(stmt)).scalars().all()
+    assert len(rows) == 2
+    colleges = {r.college for r in rows}
+    assert colleges == {"College Alpha", "College Beta"}
+
+    # Attempt to insert College Alpha again - should be deduplicated
+    dupe_insert = [
+        {
+            "college": "College Alpha",
+            "event_name": "  NATIONAL TECH   SYMPOSIUM 2026  ",
+            "date": "2026-03-15",
+            "institution_id": None,
+        }
+    ]
+    saved_dupe = await save_events_with_fallback(db_session, dupe_insert, fallback_file)
+    await db_session.commit()
+
+    # Query again - row count must still be 2, not 3
+    rows_after = (await db_session.execute(stmt)).scalars().all()
+    assert len(rows_after) == 2
+
+
+@pytest.mark.asyncio
+async def test_assign_date_validation(client: AsyncClient, sample_admin: User):
+    """Verify strict date validation when creating or updating event dates."""
+    admin_token = create_access_token(sample_admin.id, token_version=sample_admin.token_version)
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Create an undated event
+    res = await client.post(
+        "/api/v1/admin/events/manual",
+        json={"event_name": "TBD Guest Lecture", "event_date": None, "event_type": "Lecture"},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    ev_id = res.json()["id"]
+
+    # 2. Assign invalid date string -> should fail with 422
+    invalid_res = await client.patch(
+        f"/api/v1/admin/events/{ev_id}",
+        json={"event_date": "not-a-valid-date"},
+        headers=headers,
+    )
+    assert invalid_res.status_code == 422
+    assert "Invalid date format" in invalid_res.json()["detail"]
+
+    # 3. Assign impossible date -> should fail with 422
+    impossible_res = await client.patch(
+        f"/api/v1/admin/events/{ev_id}",
+        json={"event_date": "2026-02-30"},
+        headers=headers,
+    )
+    assert impossible_res.status_code == 422
+
+    # 4. Assign valid date -> should succeed and normalize to YYYY-MM-DD
+    valid_res = await client.patch(
+        f"/api/v1/admin/events/{ev_id}",
+        json={"event_date": "25/11/2026"},
+        headers=headers,
+    )
+    assert valid_res.status_code == 200
+    assert valid_res.json()["event_date"] == "2026-11-25"
+
+
+@pytest.mark.asyncio
+async def test_admin_scrape_rate_limit_and_503_refund(client: AsyncClient, sample_admin: User, monkeypatch):
+    """
+    Verify:
+    1. 3 scrapes per hour limit.
+    2. Failed scrape counts towards the limit.
+    3. A 503 error does NOT count (attempt is refunded).
+    4. Friendly messages with manual add fallback.
+    """
+    from app.api import college_events
+    from app.college_events.safe_scraper import Scraper503Error
+
+    # Clear rate limit tracker
+    college_events._institution_scrape_times.clear()
+
+    admin_token = create_access_token(sample_admin.id, token_version=sample_admin.token_version)
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Mock DNS and extract_events_safe to succeed
+    import socket
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port: [(2, 1, 0, "", ("93.184.216.34", 0))])
+    monkeypatch.setattr(
+        "app.api.college_events.extract_events_safe",
+        lambda start_url, college_name, max_pages: [
+            {"event_name": f"Event {i}", "event_type": "Notice", "date": "2026-11-01"}
+            for i in range(2)
+        ]
+    )
+
+    # Scrape 1: success
+    res1 = await client.post(
+        "/api/v1/admin/events/scrape",
+        json={"college_url": "https://college.edu/events"},
+        headers=headers,
+    )
+    assert res1.status_code == 200
+
+    # Scrape 2: fails with general ValueError (counts towards limit)
+    def fail_with_val_error(*args, **kwargs):
+        raise ValueError("Simulated scrape parse failure")
+    monkeypatch.setattr("app.api.college_events.extract_events_safe", fail_with_val_error)
+
+    res2 = await client.post(
+        "/api/v1/admin/events/scrape",
+        json={"college_url": "https://college.edu/events"},
+        headers=headers,
+    )
+    assert res2.status_code == 400
+    assert "add events manually" in res2.json()["detail"].lower()
+
+    # Scrape 3: fails with 503 (MUST NOT COUNT towards limit)
+    def fail_with_503(*args, **kwargs):
+        raise Scraper503Error("Upstream server returned 503")
+    monkeypatch.setattr("app.api.college_events.extract_events_safe", fail_with_503)
+
+    res3 = await client.post(
+        "/api/v1/admin/events/scrape",
+        json={"college_url": "https://college.edu/events"},
+        headers=headers,
+    )
+    assert res3.status_code == 503
+    assert "not counted against your hourly scrape limit" in res3.json()["detail"]
+    assert "add events manually" in res3.json()["detail"].lower()
+
+    # Scrape 4: Because 503 was refunded, we have only used 2 valid/failed attempts, so this 3rd attempt is permitted!
+    monkeypatch.setattr(
+        "app.api.college_events.extract_events_safe",
+        lambda start_url, college_name, max_pages: [{"event_name": "Permitted", "event_type": "Notice", "date": "2026-11-02"}]
+    )
+    res4 = await client.post(
+        "/api/v1/admin/events/scrape",
+        json={"college_url": "https://college.edu/events"},
+        headers=headers,
+    )
+    assert res4.status_code == 200
+
+    # Scrape 5: Now we have reached 3 attempts (res1, res2, res4) -> 429 Rate Limit Exceeded
+    res5 = await client.post(
+        "/api/v1/admin/events/scrape",
+        json={"college_url": "https://college.edu/events"},
+        headers=headers,
+    )
+    assert res5.status_code == 429
+    assert "3 scrapes per hour" in res5.json()["detail"]
+    assert "add events manually" in res5.json()["detail"].lower()
+

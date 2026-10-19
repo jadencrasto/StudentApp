@@ -68,16 +68,18 @@ async def save_events_with_fallback(db: AsyncSession, events: Sequence[dict], fa
         known_keys = set()
         for row in existing_rows:
             inst_key = str(row.institution_id) if row.institution_id else ""
+            college_key = (row.college or "").strip().lower() if not row.institution_id else ""
             title_key = _normalize_title(row.event_name)
             date_key = _normalize_date(row.event_date)
-            known_keys.add((inst_key, title_key, date_key))
+            known_keys.add((inst_key, college_key, title_key, date_key))
 
         for item in events:
             inst_key = str(item.get("institution_id")) if item.get("institution_id") else ""
+            college_key = (item.get("college") or "").strip().lower() if not item.get("institution_id") else ""
             title_key = _normalize_title(item.get("event_name"))
             date_key = _normalize_date(item.get("date") or item.get("event_date"))
 
-            key = (inst_key, title_key, date_key)
+            key = (inst_key, college_key, title_key, date_key)
             if key in known_keys:
                 persisted.append(item)
                 continue

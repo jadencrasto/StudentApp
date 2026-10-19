@@ -5,6 +5,7 @@ import logging
 import time
 from urllib.parse import urlparse
 
+from pathlib import Path
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,8 +28,9 @@ from sqlalchemy import select, and_, or_, func
 from app.core.dependencies import require_admin, get_current_user, get_admin_institution_id
 from app.core.security import decode_access_token
 from app.models.user import User
+from app.models.institution import Institution
 from app.models.integrations import CollegeEvent
-from app.college_events.safe_scraper import validate_safe_url, extract_events_safe
+from app.college_events.safe_scraper import validate_safe_url, extract_events_safe, Scraper503Error
 from app.college_events.database import save_events_with_fallback, _normalize_title, _normalize_date
 from app.core.rate_limiter import quota_cooldown_tracker
 
@@ -38,8 +40,8 @@ router = APIRouter(tags=["College Events"])
 
 # Rate limit tracker for admin scrapes: institution_id -> list of timestamps
 _institution_scrape_times: dict[str, list[float]] = {}
-SCRAPE_MAX_PER_WINDOW = 5
-SCRAPE_WINDOW_SECONDS = 600
+SCRAPE_MAX_PER_WINDOW = 3
+SCRAPE_WINDOW_SECONDS = 3600  # 1 hour
 
 class ManualEventCreate(BaseModel):
     event_name: str = Field(..., min_length=2, max_length=500)
@@ -447,6 +449,36 @@ async def get_admin_events(
     }
 
 
+def validate_event_date_format(val: str | None) -> str | None:
+    """
+    Validates date string for assigned events.
+    Accepts ISO formats (YYYY-MM-DD), standard slash formats (DD/MM/YYYY or YYYY/MM/DD),
+    or common calendar date formats. Normalizes valid dates to YYYY-MM-DD or raises 422.
+    """
+    if val is None:
+        return None
+    cleaned = val.strip()
+    if not cleaned:
+        return None
+    from datetime import datetime
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%d %b %Y", "%d %B %Y", "%B %d, %Y"):
+        try:
+            dt = datetime.strptime(cleaned, fmt)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", cleaned):
+        try:
+            datetime.fromisoformat(cleaned)
+            return cleaned
+        except ValueError:
+            pass
+    raise HTTPException(
+        status_code=422,
+        detail="Invalid date format. Please provide a valid date such as YYYY-MM-DD (e.g. 2026-11-15) or DD/MM/YYYY.",
+    )
+
+
 @router.post("/admin/events/manual")
 @router.post("/events/manual")
 async def create_manual_event(
@@ -457,7 +489,8 @@ async def create_manual_event(
     inst_id = get_admin_institution_id(admin_user)
 
     norm_title = _normalize_title(payload.event_name)
-    norm_date = _normalize_date(payload.event_date)
+    validated_date = validate_event_date_format(payload.event_date)
+    norm_date = _normalize_date(validated_date)
 
     existing_stmt = select(CollegeEvent).where(CollegeEvent.institution_id == inst_id)
     existing_rows = (await db.execute(existing_stmt)).scalars().all()
@@ -468,12 +501,18 @@ async def create_manual_event(
                 detail="An event with the same title and date already exists for this institution.",
             )
 
+    inst_name = "College"
+    if inst_id:
+        inst_obj = await db.get(Institution, inst_id)
+        if inst_obj and inst_obj.name:
+            inst_name = inst_obj.name
+
     new_ev = CollegeEvent(
         institution_id=inst_id,
-        college=admin_user.institution.name if admin_user.institution else "College",
+        college=inst_name,
         event_name=payload.event_name.strip(),
         event_type=payload.event_type.strip(),
-        event_date=payload.event_date.strip() if payload.event_date else None,
+        event_date=validated_date,
         semester=payload.semester.strip() if payload.semester else None,
         department=payload.department.strip() if payload.department else None,
         source_url=payload.source_url.strip() if payload.source_url else "manual",
@@ -510,7 +549,7 @@ async def update_event(
     if payload.event_type is not None:
         ev.event_type = payload.event_type.strip()
     if payload.event_date is not None:
-        ev.event_date = payload.event_date.strip() if payload.event_date else None
+        ev.event_date = validate_event_date_format(payload.event_date)
     if payload.semester is not None:
         ev.semester = payload.semester.strip() if payload.semester else None
     if payload.department is not None:
@@ -538,31 +577,41 @@ async def trigger_admin_scrape(
     inst_id = get_admin_institution_id(admin_user)
     inst_key = str(inst_id)
 
-    # 1. Rate limit check: max 5 calls per 10 min
+    # 1. Rate limit check: max 3 calls per hour
     now = time.time()
     recent = [t for t in _institution_scrape_times.get(inst_key, []) if now - t < SCRAPE_WINDOW_SECONDS]
     if len(recent) >= SCRAPE_MAX_PER_WINDOW:
         raise HTTPException(
             status_code=429,
-            detail="Scraping rate limit exceeded (max 5 scrapes per 10 minutes). Please try again later.",
+            detail="Scraping rate limit reached (maximum 3 scrapes per hour). You can still add events manually using the 'Add Event' button.",
         )
+    # Record attempt now (failed attempts count, but 503 will be refunded below)
     recent.append(now)
     _institution_scrape_times[inst_key] = recent
 
     # 2. SSRF validation on the initial URL
     is_safe, reason = validate_safe_url(payload.college_url)
     if not is_safe:
-        raise HTTPException(status_code=400, detail=f"Target URL rejected by safety policy: {reason}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Target URL rejected by safety policy: {reason}. You can add events manually using the 'Add Event' button.",
+        )
 
     # 3. Check AI quota cooldown
     if quota_cooldown_tracker.is_in_cooldown():
         raise HTTPException(
             status_code=429,
-            detail="AI service is currently in quota cooldown. Please add events manually using the 'Add Event' form.",
+            detail="AI service daily quota limit reached or in cooldown. Please add events manually using the 'Add Event' form.",
         )
 
     # 4. Scrape safely (runs in thread so we don't block the async loop)
-    college_name = payload.college_name or (admin_user.institution.name if admin_user.institution else "College")
+    inst_name = "College"
+    if inst_id:
+        inst_obj = await db.get(Institution, inst_id)
+        if inst_obj and inst_obj.name:
+            inst_name = inst_obj.name
+
+    college_name = payload.college_name or inst_name
     try:
         scraped_events = await asyncio.to_thread(
             extract_events_safe,
@@ -570,11 +619,33 @@ async def trigger_admin_scrape(
             college_name=college_name,
             max_pages=15
         )
+    except Scraper503Error as exc_503:
+        # 503 does NOT count towards the rate limit
+        if now in _institution_scrape_times.get(inst_key, []):
+            _institution_scrape_times[inst_key].remove(now)
+        raise HTTPException(
+            status_code=503,
+            detail=f"The service is temporarily unavailable (503): {exc_503}. This attempt was not counted against your hourly scrape limit. Please try again in a few moments, or add events manually using the 'Add Event' button.",
+        )
     except ValueError as val_err:
-        raise HTTPException(status_code=400, detail=f"Scraper safety halt: {val_err}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Scraper safety halt: {val_err}. You can add events manually using the 'Add Event' button.",
+        )
     except Exception as exc:
+        err_msg = str(exc)
+        if "503" in err_msg:
+            if now in _institution_scrape_times.get(inst_key, []):
+                _institution_scrape_times[inst_key].remove(now)
+            raise HTTPException(
+                status_code=503,
+                detail="The service is temporarily unavailable (503). This attempt was not counted against your hourly scrape limit. Please try again in a few moments, or add events manually using the 'Add Event' button.",
+            )
         logger.error("Scraper error: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Scraping failed: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Scraping failed: {exc}. You can add events manually using the 'Add Event' button.",
+        )
 
     # 5. Tag events with institution_id and is_manual = False
     for ev in scraped_events:
