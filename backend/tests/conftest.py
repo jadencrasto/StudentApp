@@ -30,6 +30,8 @@ from sqlalchemy.pool import StaticPool
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"  # in-memory SQLite for tests
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-ci-only-not-production")
 os.environ.setdefault("DEBUG", "true")
+os.environ.setdefault("GEMINI_API_KEY_CHAT", "test-gemini-chat-key")
+os.environ.setdefault("GEMINI_API_KEY_TIMETABLE", "test-gemini-timetable-key")
 
 # Now it is safe to import the app
 from app.config import settings  # noqa: E402

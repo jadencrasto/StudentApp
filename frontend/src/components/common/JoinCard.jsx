@@ -176,38 +176,38 @@ export default function JoinCard({ className = '' }) {
   // ── STATE 4 & 6: IN INSTITUTION, ENTER CLASS CODE ───────────────────
   if (isInInstitutionNoClass) {
     return (
-      <div className={`p-6 rounded-2xl bg-white/[0.03] border border-emerald-500/20 backdrop-blur-sm ${className}`}>
+      <div className={`p-6 rounded-2xl bg-gradient-to-br from-emerald-500/[0.08] via-emerald-950/[0.04] to-transparent border border-emerald-500/30 shadow-lg shadow-emerald-950/20 backdrop-blur-sm ${className}`}>
         {/* Institution Badge */}
-        <div className="flex items-center justify-between pb-3 mb-4 border-b border-white/5">
+        <div className="flex items-center justify-between pb-3 mb-4 border-b border-emerald-500/10">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+            <div className="w-6 h-6 rounded-md bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
               <CheckCircle2 size={14} />
             </div>
             <span className="text-xs text-slate-300">
               Member of <strong className="text-white">{institution.name}</strong>
             </span>
           </div>
-          <span className="px-2 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
             Step 2 of 2
           </span>
         </div>
 
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-            <Layers size={18} />
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 flex-shrink-0">
+            <Layers size={20} />
           </div>
           <div>
             <h3 className="text-base font-semibold text-white">Enter Your Class Code</h3>
-            <p className="text-xs text-slate-400">Enter the code given by your teacher or class admin to enroll in your class.</p>
+            <p className="text-xs text-slate-400">Enter the code provided by your teacher or faculty to complete enrollment in your class cohort.</p>
           </div>
         </div>
 
         {/* State 6: Class Rejected Banner */}
         {isClassRejected && (
-          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 flex items-start gap-2.5 text-xs text-red-300">
+          <div className="mb-4 p-3.5 rounded-xl bg-red-500/10 border border-red-500/25 flex items-start gap-2.5 text-xs text-red-300">
             <AlertCircle size={16} className="flex-shrink-0 mt-0.5 text-red-400" />
             <div>
-              <span className="font-medium">Previous class request was not approved.</span> Please enter a valid class code below to submit a new request.
+              <span className="font-semibold text-red-200">Previous class request was not approved.</span> Please enter a valid class code below to submit a new enrollment request.
             </div>
           </div>
         )}
@@ -224,12 +224,12 @@ export default function JoinCard({ className = '' }) {
                 }}
                 placeholder="e.g. 9B-2026 or CLASS CODE"
                 maxLength={32}
-                className="w-full px-4 py-2.5 bg-black/40 border border-white/10 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50 text-sm tracking-wider uppercase font-mono"
+                className="w-full pl-4 pr-32 py-2.5 bg-black/50 border border-emerald-500/20 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30 text-sm tracking-wider uppercase font-mono transition-all"
               />
               <button
                 type="submit"
                 disabled={loading || !code.trim()}
-                className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:hover:bg-emerald-500 text-black font-semibold text-xs rounded-lg flex items-center gap-1.5 transition-colors"
+                className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:hover:bg-emerald-500 text-black font-semibold text-xs rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
               >
                 {loading ? (
                   <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />

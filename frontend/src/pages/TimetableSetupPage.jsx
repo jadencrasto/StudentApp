@@ -8,6 +8,7 @@ import UploadTimetable from '../components/timetable/UploadTimetable'
 import { getSubjects } from '../api/attendance'
 import { bulkSaveTimetableEntries, getTimetableEntries } from '../api/timetable'
 import { classTimetableAPI } from '../api/client'
+import { useAuth } from '../hooks/useAuth'
 
 const DAYS = [
   { value: 0, label: 'Monday' },
@@ -20,7 +21,7 @@ const DAYS = [
 ]
 
 export default function TimetableSetupPage() {
-  const [activeTab, setActiveTab] = useState('class') // 'class' | 'personal'
+  const { isClassStudent } = useAuth()
   const [view, setView] = useState('grid')
   const [entries, setEntries] = useState([])
   const [subjects, setSubjects] = useState([])
@@ -40,29 +41,20 @@ export default function TimetableSetupPage() {
 
   useEffect(() => {
     async function loadData() {
+      setLoading(true)
       try {
-        const [
-          { data: timetable },
-          { data: subjectList },
-          classRes,
-        ] = await Promise.all([
-          getTimetableEntries(),
-          getSubjects(),
-          classTimetableAPI.getStudentClassTimetable().catch(() => ({ data: null })),
-        ])
-        setEntries(timetable)
-        setSubjects(subjectList)
-
-        if (classRes?.data) {
-          setClassTimetable(classRes.data)
-          // Default to class timetable tab if student has an official published timetable
-          if (classRes.data.has_timetable) {
-            setActiveTab('class')
-          } else {
-            setActiveTab('personal')
+        if (isClassStudent) {
+          const classRes = await classTimetableAPI.getStudentClassTimetable().catch(() => ({ data: null }))
+          if (classRes?.data) {
+            setClassTimetable(classRes.data)
           }
         } else {
-          setActiveTab('personal')
+          const [{ data: timetable }, { data: subjectList }] = await Promise.all([
+            getTimetableEntries(),
+            getSubjects(),
+          ])
+          setEntries(timetable || [])
+          setSubjects(subjectList || [])
         }
       } catch {
         toast.error('Failed to load timetable data')
@@ -72,7 +64,7 @@ export default function TimetableSetupPage() {
     }
 
     loadData()
-  }, [])
+  }, [isClassStudent])
 
   const savePayload = useMemo(
     () => entries.map((entry) => ({
@@ -130,47 +122,21 @@ export default function TimetableSetupPage() {
           {/* Top Header */}
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
-              <h1 className="font-display text-3xl text-white mb-1">Timetable Schedule</h1>
+              <h1 className="font-display text-3xl text-white mb-1">
+                {isClassStudent ? 'Class Timetable' : 'Personal Timetable'}
+              </h1>
               <p className="text-slate-400 text-sm">
-                View your official class schedule and manage your personal routine
+                {isClassStudent
+                  ? 'Official published schedule for your class cohort'
+                  : 'Manage your personal timetable and weekly study schedule'}
               </p>
             </div>
-
-            {/* Switcher: Official Class vs Personal */}
-            {classTimetable.enrolled && (
-              <div className="flex items-center gap-1 bg-black/50 border border-emerald-500/30 rounded-xl p-1">
-                <button
-                  onClick={() => setActiveTab('class')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeTab === 'class'
-                      ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <Calendar size={14} /> Official Class Timetable
-                  {classTimetable.has_timetable && (
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  )}
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('personal')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeTab === 'personal'
-                      ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <User size={14} /> Personal Schedule
-                </button>
-              </div>
-            )}
           </div>
 
           {/* ─────────────────────────────────────────────────────────────
               VIEW 1: OFFICIAL CLASS TIMETABLE (Read-Only)
           ───────────────────────────────────────────────────────────── */}
-          {activeTab === 'class' && classTimetable.enrolled && (
+          {isClassStudent && (
             <div className="space-y-6">
               {/* Class Info Banner */}
               <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-black border border-emerald-500/30 backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -182,7 +148,7 @@ export default function TimetableSetupPage() {
                     <span className="text-xs text-slate-400">Read-Only</span>
                   </div>
                   <h2 className="text-xl font-bold text-white tracking-tight">
-                    {classTimetable.cohort_name}
+                    {classTimetable.cohort_name || 'Enrolled Class'}
                   </h2>
                   {classTimetable.has_timetable && classTimetable.published_at && (
                     <p className="text-xs text-slate-400 mt-0.5">
@@ -190,15 +156,6 @@ export default function TimetableSetupPage() {
                     </p>
                   )}
                 </div>
-
-                {!classTimetable.has_timetable && (
-                  <button
-                    onClick={() => setActiveTab('personal')}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-colors"
-                  >
-                    Go to Personal Schedule &rarr;
-                  </button>
-                )}
               </div>
 
               {!classTimetable.has_timetable ? (
@@ -210,17 +167,9 @@ export default function TimetableSetupPage() {
                   <h3 className="text-base font-bold text-white">No Official Timetable Published Yet</h3>
                   <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
                     Your class administrator hasn't published an official weekly schedule for{' '}
-                    <strong className="text-emerald-400">{classTimetable.cohort_name}</strong> yet.
+                    <strong className="text-emerald-400">{classTimetable.cohort_name || 'your class'}</strong> yet.
                     It will appear here automatically once published.
                   </p>
-                  <div className="pt-2">
-                    <button
-                      onClick={() => setActiveTab('personal')}
-                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs rounded-xl transition-all shadow-lg shadow-emerald-500/20"
-                    >
-                      Open Personal Schedule
-                    </button>
-                  </div>
                 </div>
               ) : (
                 /* Published Schedule Grid by Day */
@@ -298,7 +247,7 @@ export default function TimetableSetupPage() {
           {/* ─────────────────────────────────────────────────────────────
               VIEW 2: PERSONAL SCHEDULE (Custom)
           ───────────────────────────────────────────────────────────── */}
-          {(activeTab === 'personal' || !classTimetable.enrolled) && (
+          {!isClassStudent && (
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/10">
                 <div>

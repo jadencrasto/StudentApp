@@ -6,7 +6,7 @@ import { getSummary } from '../api/attendance'
 import { getActivities } from '../api/activities'
 import { getAlerts, refreshAlerts, markAlertRead } from '../api/alerts'
 import { getMorningCheckin, getUnmarkedReminders, getEndOfDaySummary } from '../api/timetable'
-import client from '../api/client'
+import client, { classAttendanceAPI } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import {
   format,
@@ -120,9 +120,10 @@ function DeadlineItem({ a, index = 0 }) {
 }
 
 export default function DashboardPage() {
-  const { user, role, onboarding_completed, institution } = useAuth()
+  const { user, role, onboarding_completed, institution, isClassStudent } = useAuth()
   const [assignments, setAssignments] = useState([])
   const [summaries, setSummaries] = useState([])
+  const [classAttendanceData, setClassAttendanceData] = useState(null)
   const [activities, setActivities] = useState([])
   const [alerts, setAlerts] = useState([])
   const [morningCheckin, setMorningCheckin] = useState(null)
@@ -135,18 +136,60 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Load attendance: class attendance for enrolled class students, personal summary for independent
+    const attendancePromise = isClassStudent
+      ? classAttendanceAPI.getStudentClassAttendance()
+          .then(r => {
+            if (r.data?.enrolled && r.data?.subjects) {
+              setClassAttendanceData(r.data)
+              setSummaries(r.data.subjects.map(s => ({
+                subject_id: s.subject_id || s.subject_name,
+                subject_name: s.subject_name,
+                attendance_percentage: s.attendance_percentage,
+                below_threshold: s.below_threshold,
+                total_classes: s.total_classes,
+                present_classes: s.present_classes
+              })))
+            } else {
+              setSummaries([])
+            }
+          })
+          .catch(() => setSummaries([]))
+      : getSummary().then(r => setSummaries(r.data)).catch(() => setSummaries([]))
+
     // Load critical data first (fast endpoints)
     Promise.allSettled([
       getAssignments().then(r => setAssignments(r.data)),
-      getSummary().then(r => setSummaries(r.data)),
+      attendancePromise,
       getActivities().then(r => setActivities(r.data)),
       getAlerts(true).then(r => setAlerts(r.data)),
     ]).finally(() => setLoading(false))
 
-    // Load timetable reminders (secondary priority, fire-and-forget)
-    getMorningCheckin().then(r => setMorningCheckin(r.data)).catch(() => { })
-    getUnmarkedReminders().then(r => setUnmarkedReminder(r.data)).catch(() => { })
-    getEndOfDaySummary().then(r => setEndOfDaySummary(r.data)).catch(() => { })
+    // Load timetable schedule / reminders
+    if (isClassStudent) {
+      client.get('/timetable/today').then(r => {
+        const todayClasses = Array.isArray(r.data) ? r.data : []
+        setMorningCheckin({
+          type: 'morning_checkin',
+          classes: todayClasses.map(c => ({
+            subject_id: c.subject_id || c.id,
+            subject_name: c.subject_name,
+            start_time: c.start_time,
+            end_time: c.end_time,
+            room: c.room,
+            is_marked: false,
+          })),
+          total: todayClasses.length,
+          marked: 0,
+        })
+      }).catch(() => { })
+      setUnmarkedReminder(null)
+      setEndOfDaySummary(null)
+    } else {
+      getMorningCheckin().then(r => setMorningCheckin(r.data)).catch(() => { })
+      getUnmarkedReminders().then(r => setUnmarkedReminder(r.data)).catch(() => { })
+      getEndOfDaySummary().then(r => setEndOfDaySummary(r.data)).catch(() => { })
+    }
 
     // Defer events loading (slowest endpoint — web scraping)
     const eventsTimer = setTimeout(() => {
@@ -154,7 +197,7 @@ export default function DashboardPage() {
         .then(r => setAcademicEvents(Array.isArray(r?.data) ? r.data : []))
     }, 100)
     return () => clearTimeout(eventsTimer)
-  }, [])
+  }, [isClassStudent])
 
   useEffect(() => {
     if (calendarAnchored) return
@@ -208,9 +251,11 @@ export default function DashboardPage() {
     setAlerts(prev => prev.filter(a => a.id !== id))
   }
 
-  const avgAttendance = summaries.length
-    ? Math.round(summaries.reduce((s, x) => s + x.attendance_percentage, 0) / summaries.length)
-    : 0
+  const avgAttendance = isClassStudent && classAttendanceData != null
+    ? Math.round(classAttendanceData.overall_percentage)
+    : summaries.length
+      ? Math.round(summaries.reduce((s, x) => s + x.attendance_percentage, 0) / summaries.length)
+      : 0
   const lowAttendance = summaries.filter(s => s.below_threshold).length
   const conflictCount = activities.filter(a => a.has_conflict).length
   const activeAssignments = assignments.filter(a => a.status !== 'completed')
@@ -349,9 +394,13 @@ export default function DashboardPage() {
         <p className="text-slate-400 mt-1">{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
       </motion.div>
 
-      <MorningCheckin data={morningCheckin} />
-      <UnmarkedAlert data={unmarkedReminder} />
-      <EndOfDaySummary data={endOfDaySummary} />
+      <MorningCheckin
+        data={morningCheckin}
+        isClassStudent={isClassStudent}
+        cohortName={user?.cohort_name || institution?.name}
+      />
+      {!isClassStudent && <UnmarkedAlert data={unmarkedReminder} />}
+      {!isClassStudent && <EndOfDaySummary data={endOfDaySummary} />}
 
       {/* Join Institution Card */}
       {role === 'student' && (
@@ -433,7 +482,7 @@ export default function DashboardPage() {
         >
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-display text-lg text-white">Attendance by Subject</h2>
-            <Link to="/dashboard/attendance" className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors">Manage <ChevronRight size={12} /></Link>
+            <Link to="/dashboard/attendance" className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors">{isClassStudent ? 'View details' : 'Manage'} <ChevronRight size={12} /></Link>
           </div>
           {summaries.length === 0
             ? <p className="text-sm text-slate-500 py-4 text-center">No subjects tracked yet</p>

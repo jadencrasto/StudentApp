@@ -18,6 +18,11 @@ from sqlalchemy.orm import selectinload
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.document_alert import Document
 from app.models.assignment import Assignment
+from app.models.user import User
+from app.models.class_timetable import ClassTimetable
+from app.models.class_attendance import ClassAttendanceRecord
+from app.models.attendance import Subject, AttendanceRecord
+from app.models.timetable import TimetableEntry
 from app.services.ai_provider import ai_provider
 from app.services.ollama_client import OllamaClient
 
@@ -180,6 +185,81 @@ class ChatService:
                     )
         else:
             system_instruction = GENERAL_SYSTEM
+            user = await db.get(User, user_id)
+            if user:
+                context_lines = []
+                today = datetime.now()
+                weekday = today.weekday()
+
+                if (
+                    user.role == "student"
+                    and user.is_active
+                    and user.institution_id
+                    and user.cohort_id
+                ):
+                    # Class student: load class timetable & class attendance
+                    published = await db.scalar(
+                        select(ClassTimetable).where(
+                            ClassTimetable.cohort_id == user.cohort_id,
+                            ClassTimetable.status == "published",
+                        )
+                    )
+                    today_classes = []
+                    if published and published.entries:
+                        for entry in published.entries:
+                            if int(entry.get("day_of_week", -1)) == weekday:
+                                today_classes.append(
+                                    f"- {entry.get('start_time')}-{entry.get('end_time')}: {entry.get('subject')} (Room: {entry.get('room', 'N/A')}, Teacher: {entry.get('teacher', 'N/A')})"
+                                )
+                    if today_classes:
+                        context_lines.append("Today's Official Class Schedule:\n" + "\n".join(today_classes))
+                    else:
+                        context_lines.append("Today's Official Class Schedule: No classes scheduled today.")
+
+                    rec_res = await db.execute(
+                        select(ClassAttendanceRecord).where(
+                            ClassAttendanceRecord.student_id == user.id,
+                            ClassAttendanceRecord.cohort_id == user.cohort_id,
+                        )
+                    )
+                    recs = list(rec_res.scalars().all())
+                    if recs:
+                        tot = len(recs)
+                        pres = sum(1 for r in recs if r.status == "present")
+                        pct = round((pres / tot) * 100, 1)
+                        context_lines.append(f"Official Class Attendance: {pct}% overall ({pres}/{tot} sessions attended).")
+                else:
+                    # Independent student: load personal timetable & personal attendance
+                    tt_res = await db.execute(
+                        select(TimetableEntry, Subject)
+                        .join(Subject, TimetableEntry.subject_id == Subject.id)
+                        .where(
+                            TimetableEntry.user_id == user.id,
+                            TimetableEntry.day_of_week == weekday,
+                            TimetableEntry.is_active.is_(True),
+                        )
+                        .order_by(TimetableEntry.start_time)
+                    )
+                    personal_classes = []
+                    for entry, subj in tt_res.all():
+                        personal_classes.append(
+                            f"- {entry.start_time.strftime('%H:%M')}-{entry.end_time.strftime('%H:%M')}: {subj.name} (Room: {entry.room or 'N/A'})"
+                        )
+                    if personal_classes:
+                        context_lines.append("Today's Personal Schedule:\n" + "\n".join(personal_classes))
+
+                    rec_res = await db.execute(
+                        select(AttendanceRecord).where(AttendanceRecord.user_id == user.id)
+                    )
+                    records = list(rec_res.scalars().all())
+                    if records:
+                        tot = len(records)
+                        pres = sum(1 for r in records if (r.status.value if hasattr(r.status, "value") else str(r.status)) == "present")
+                        pct = round((pres / tot) * 100, 1) if tot > 0 else 0.0
+                        context_lines.append(f"Personal Attendance Tracker: {pct}% overall ({pres}/{tot} sessions attended).")
+
+                if context_lines:
+                    system_instruction += "\n\nStudent Academic Context:\n" + "\n".join(context_lines)
 
         # 4. Call AI layer with properly structured chat turns
         ai_text = await self.ai_provider.generate_chat(
@@ -297,3 +377,7 @@ class ChatService:
         parts.append("\n[SAIS]\n")
 
         return "\n".join(parts)
+
+
+chat_service = ChatService()
+

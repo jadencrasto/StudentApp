@@ -85,6 +85,7 @@ class UserOut(BaseModel):
     full_name:             Optional[str]
     created_at:            datetime
     role:                  str = "student"
+    is_active:             bool = True
     must_change_password:  bool = False
     onboarding_completed:  bool = False
     education_level:       Optional[str] = None
@@ -218,14 +219,14 @@ class TimetableEntryCreate(TimetableEntryBase):
 
 class TimetableEntryOut(BaseModel):
     id: UUID
-    subject_id: UUID
+    subject_id: Optional[UUID] = None
     subject_name: Optional[str] = None
     day_of_week: int
     start_time: str
     end_time: str
-    room: Optional[str]
-    notes: Optional[str]
-    is_active: bool
+    room: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: bool = True
 
 
 class TimetableUploadOut(BaseModel):

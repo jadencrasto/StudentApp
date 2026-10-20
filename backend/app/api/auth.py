@@ -60,6 +60,7 @@ async def build_user_out(user: User, db: AsyncSession) -> UserOut:
         full_name=user.full_name,
         created_at=user.created_at,
         role=user.role,
+        is_active=user.is_active,
         must_change_password=user.must_change_password,
         onboarding_completed=user.onboarding_completed,
         education_level=user.education_level,

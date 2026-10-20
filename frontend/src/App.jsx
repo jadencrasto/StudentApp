@@ -163,9 +163,12 @@ export default function App() {
             <Route index element={<ErrorBoundary><motion.div {...pageTransition} key="dashboard"><DashboardPage /></motion.div></ErrorBoundary>} />
             <Route path="assignments" element={<ErrorBoundary><motion.div {...pageTransition} key="assignments"><AssignmentsPage /></motion.div></ErrorBoundary>} />
             <Route path="attendance" element={<ErrorBoundary><motion.div {...pageTransition} key="attendance"><AttendancePage /></motion.div></ErrorBoundary>} />
+            <Route path="attendance/personal" element={<Navigate to="/dashboard/attendance" replace />} />
             <Route path="marks" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="marks"><MarksPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="activities" element={<ErrorBoundary><motion.div {...pageTransition} key="activities"><ActivitiesPage /></motion.div></ErrorBoundary>} />
             <Route path="timetable" element={<ErrorBoundary><motion.div {...pageTransition} key="timetable"><TimetableSetupPage /></motion.div></ErrorBoundary>} />
+            <Route path="timetable/personal" element={<Navigate to="/dashboard/timetable" replace />} />
+            <Route path="timetable/upload" element={<Navigate to="/dashboard/timetable" replace />} />
             <Route path="events" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="events"><CollegeEventsPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="classroom" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="classroom"><ClassroomDashboardPage /></motion.div></Suspense></ErrorBoundary>} />
             <Route path="classroom/materials" element={<ErrorBoundary><Suspense fallback={<PageLoader />}><motion.div {...pageTransition} key="classroom-materials"><CourseMaterialsPage /></motion.div></Suspense></ErrorBoundary>} />
