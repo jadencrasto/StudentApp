@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from difflib import SequenceMatcher
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from app.services.gemini_timetable_extractor import GeminiTimetableExtractor
 
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def _parse_time_string(value):
@@ -182,7 +185,7 @@ async def is_class_student(user_id: UUID, db: AsyncSession) -> tuple[bool, User 
 
 async def get_today_classes(user_id: UUID, db: AsyncSession) -> list[dict]:
     is_class, user = await is_class_student(user_id, db)
-    today = datetime.now()
+    today = datetime.now(IST)
     weekday = today.weekday()
 
     if is_class and user and user.cohort_id:
@@ -276,7 +279,7 @@ async def get_morning_checkin(user_id: UUID, db: AsyncSession) -> dict:
             "marked": 0,
         }
 
-    today = datetime.now()
+    today = datetime.now(IST)
     day_of_week = today.weekday()
     today_date = today.date()
 
@@ -355,7 +358,7 @@ async def get_unmarked_classes(user_id: UUID, db: AsyncSession) -> dict:
             "count": 0,
         }
 
-    now = datetime.now()
+    now = datetime.now(IST)
     day_of_week = now.weekday()
     today_date = now.date()
     current_time = now.time()
@@ -413,7 +416,7 @@ async def get_end_of_day_summary(user_id: UUID, db: AsyncSession) -> dict:
             "unmarked_count": 0,
         }
 
-    today = datetime.now()
+    today = datetime.now(IST)
     day_of_week = today.weekday()
     today_date = today.date()
 
