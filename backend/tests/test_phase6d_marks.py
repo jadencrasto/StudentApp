@@ -6,7 +6,7 @@ import pytest
 import openpyxl
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.models.user import User
 from app.models.institution import Institution, Cohort, generate_join_code
@@ -585,3 +585,195 @@ class TestPhase6DClassMarks:
         # Check DB
         m = await db_session.scalar(select(Mark).where(Mark.exam_id == uuid.UUID(exam_id), Mark.student_id == st1.id))
         assert m.marks_obtained == Decimal("22.50")
+
+    async def test_publish_unpublish_edit_return_cohort_name_no_lazy_load(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Regression test for MissingGreenlet bug.
+
+        Every endpoint that builds an ExamResponse (publish, unpublish,
+        update, get-details) must return ``cohort_name`` and must NOT
+        trigger a lazy relationship load on ``exam.cohort``.
+
+        With the old code, publish / unpublish / update_exam crashed with
+        sqlalchemy.exc.MissingGreenlet because ``_format_exam_response``
+        fell back to ``exam.cohort.name`` after commit.
+        """
+        inst = await create_institution(db_session, "Greenlet Inst")
+        cohort = await create_cohort(db_session, inst.id, "GreenletClass")
+        admin = await create_user(
+            db_session,
+            f"admin_{uuid.uuid4().hex[:6]}@gl.edu",
+            role="admin",
+            institution_id=inst.id,
+        )
+        student = await create_user(
+            db_session,
+            f"st_{uuid.uuid4().hex[:6]}@gl.edu",
+            role="student",
+            institution_id=inst.id,
+            cohort_id=cohort.id,
+        )
+        token = await login(client, admin.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Create exam
+        e_resp = await client.post(
+            "/api/v1/admin/marks/exams",
+            json={
+                "cohort_id": str(cohort.id),
+                "exam_type": "internals",
+                "title": "Greenlet Test",
+                "subject": "CS",
+                "max_marks": 50.0,
+            },
+            headers=headers,
+        )
+        assert e_resp.status_code == 200, e_resp.text
+        exam_id = e_resp.json()["id"]
+        assert e_resp.json()["cohort_name"] == "GreenletClass"
+
+        # GET details
+        det_resp = await client.get(
+            f"/api/v1/admin/marks/exams/{exam_id}", headers=headers
+        )
+        assert det_resp.status_code == 200, det_resp.text
+        assert det_resp.json()["cohort_name"] == "GreenletClass"
+
+        # PATCH (update exam title)
+        upd_resp = await client.patch(
+            f"/api/v1/admin/marks/exams/{exam_id}",
+            json={"title": "Updated Greenlet Test"},
+            headers=headers,
+        )
+        assert upd_resp.status_code == 200, upd_resp.text
+        assert upd_resp.json()["cohort_name"] == "GreenletClass"
+
+        # PUBLISH
+        pub_resp = await client.post(
+            f"/api/v1/admin/marks/exams/{exam_id}/publish",
+            headers=headers,
+        )
+        assert pub_resp.status_code == 200, pub_resp.text
+        assert pub_resp.json()["exam"]["cohort_name"] == "GreenletClass"
+
+        # UNPUBLISH
+        unpub_resp = await client.post(
+            f"/api/v1/admin/marks/exams/{exam_id}/unpublish",
+            headers=headers,
+        )
+        assert unpub_resp.status_code == 200, unpub_resp.text
+        assert unpub_resp.json()["cohort_name"] == "GreenletClass"
+
+    async def test_data_integrity_publish_and_edit_save_exactly_once(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Confirm that a publish or edit that previously returned 500
+        (due to MissingGreenlet) was saved exactly once: no half-saved
+        state, and a mark edit creates exactly one MarkChangeRecord.
+        """
+        inst = await create_institution(db_session, "Integrity Inst")
+        cohort = await create_cohort(db_session, inst.id, "IntClass")
+        admin = await create_user(
+            db_session,
+            f"admin_{uuid.uuid4().hex[:6]}@int.edu",
+            role="admin",
+            institution_id=inst.id,
+        )
+        student = await create_user(
+            db_session,
+            f"st_{uuid.uuid4().hex[:6]}@int.edu",
+            role="student",
+            institution_id=inst.id,
+            cohort_id=cohort.id,
+        )
+        token = await login(client, admin.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Create exam
+        e_resp = await client.post(
+            "/api/v1/admin/marks/exams",
+            json={
+                "cohort_id": str(cohort.id),
+                "exam_type": "end-term",
+                "title": "Integrity Exam",
+                "subject": "Logic",
+                "max_marks": 100.0,
+            },
+            headers=headers,
+        )
+        exam_id = e_resp.json()["id"]
+
+        # Save initial mark
+        save1 = await client.post(
+            f"/api/v1/admin/marks/exams/{exam_id}/marks",
+            json={
+                "marks": [
+                    {"student_id": str(student.id), "marks_obtained": 85.0, "is_absent": False}
+                ]
+            },
+            headers=headers,
+        )
+        assert save1.status_code == 200
+
+        # Publish — must succeed and save exactly once
+        pub = await client.post(
+            f"/api/v1/admin/marks/exams/{exam_id}/publish", headers=headers
+        )
+        assert pub.status_code == 200
+
+        # Verify exam status is published exactly once
+        exam_db = await db_session.get(Exam, uuid.UUID(exam_id))
+        await db_session.refresh(exam_db)
+        assert exam_db.status == "published"
+        assert exam_db.published_at is not None
+
+        # Only one Mark row exists for this student+exam
+        mark_count_stmt = select(func.count(Mark.id)).where(
+            Mark.exam_id == uuid.UUID(exam_id),
+            Mark.student_id == student.id,
+        )
+        mark_count = await db_session.scalar(mark_count_stmt)
+        assert mark_count == 1, f"Expected 1 mark row, got {mark_count}"
+
+        # Edit mark after publish — must create exactly 1 MarkChangeRecord
+        edit = await client.post(
+            f"/api/v1/admin/marks/exams/{exam_id}/marks",
+            json={
+                "marks": [
+                    {"student_id": str(student.id), "marks_obtained": 90.0, "is_absent": False}
+                ],
+                "reason": "Rechecking answer sheet",
+            },
+            headers=headers,
+        )
+        assert edit.status_code == 200
+
+        # Count change records — exactly 1
+        cr_count_stmt = select(func.count(MarkChangeRecord.id)).where(
+            MarkChangeRecord.exam_id == uuid.UUID(exam_id),
+            MarkChangeRecord.student_id == student.id,
+        )
+        cr_count = await db_session.scalar(cr_count_stmt)
+        assert cr_count == 1, f"Expected 1 change record, got {cr_count}"
+
+        # Verify the change record contents
+        cr = await db_session.scalar(
+            select(MarkChangeRecord).where(
+                MarkChangeRecord.exam_id == uuid.UUID(exam_id),
+                MarkChangeRecord.student_id == student.id,
+            )
+        )
+        assert cr.previous_marks == Decimal("85.00")
+        assert cr.new_marks == Decimal("90.00")
+        assert cr.reason == "Rechecking answer sheet"
+
+        # Mark value is updated to 90, not duplicated
+        mark = await db_session.scalar(
+            select(Mark).where(
+                Mark.exam_id == uuid.UUID(exam_id),
+                Mark.student_id == student.id,
+            )
+        )
+        assert mark.marks_obtained == Decimal("90.00")
+

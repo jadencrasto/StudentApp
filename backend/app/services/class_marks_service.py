@@ -32,12 +32,19 @@ def _normalize_string(val: str) -> str:
 
 
 def _format_exam_response(exam: Exam, cohort_name: str | None = None, counts: dict | None = None) -> ExamResponse:
+    """Build an ExamResponse from an Exam ORM object.
+
+    ``cohort_name`` MUST be supplied by the caller — it must never be resolved
+    via ``exam.cohort.name`` because that triggers a lazy load which raises
+    ``MissingGreenlet`` in async SQLAlchemy after commit / outside the query
+    context.
+    """
     c = counts or {}
     return ExamResponse(
         id=exam.id,
         institution_id=exam.institution_id,
         cohort_id=exam.cohort_id,
-        cohort_name=cohort_name or (exam.cohort.name if exam.cohort else None),
+        cohort_name=cohort_name,
         exam_type=exam.exam_type,
         title=exam.title,
         subject=exam.subject,
@@ -199,6 +206,10 @@ async def update_exam(
 ) -> ExamResponse:
     exam = await get_exam_by_id(admin_user, exam_id, db)
 
+    # Load cohort name BEFORE commit so we never lazy-load after commit
+    cohort = await db.get(Cohort, exam.cohort_id)
+    cohort_name = cohort.name if cohort else None
+
     # 1. Check max_marks constraint: max marks can never be lowered below any existing mark
     if data.max_marks is not None and data.max_marks != exam.max_marks:
         highest_mark_stmt = select(func.max(Mark.marks_obtained)).where(
@@ -253,7 +264,7 @@ async def update_exam(
     await db.commit()
     await db.refresh(exam)
 
-    return _format_exam_response(exam)
+    return _format_exam_response(exam, cohort_name=cohort_name)
 
 
 async def delete_exam(
@@ -281,6 +292,10 @@ async def publish_exam(
     db: AsyncSession,
 ) -> PublishExamResponse:
     exam = await get_exam_by_id(admin_user, exam_id, db)
+
+    # Load cohort name BEFORE commit so we never lazy-load after commit
+    cohort = await db.get(Cohort, exam.cohort_id)
+    cohort_name = cohort.name if cohort else None
 
     # Fetch active students in cohort
     active_stmt = select(User).where(
@@ -327,7 +342,7 @@ async def publish_exam(
     }
 
     return PublishExamResponse(
-        exam=_format_exam_response(exam, counts=counts),
+        exam=_format_exam_response(exam, cohort_name=cohort_name, counts=counts),
         warnings=warnings,
     )
 
@@ -338,12 +353,17 @@ async def unpublish_exam(
     db: AsyncSession,
 ) -> ExamResponse:
     exam = await get_exam_by_id(admin_user, exam_id, db)
+
+    # Load cohort name BEFORE commit so we never lazy-load after commit
+    cohort = await db.get(Cohort, exam.cohort_id)
+    cohort_name = cohort.name if cohort else None
+
     exam.status = "draft"
     exam.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(exam)
 
-    return _format_exam_response(exam)
+    return _format_exam_response(exam, cohort_name=cohort_name)
 
 
 async def get_exam_roster_marks(

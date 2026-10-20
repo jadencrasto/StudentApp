@@ -79,7 +79,8 @@ async def get_exam_details(
 ):
     """Get exam metadata."""
     exam = await get_exam_by_id(admin_user, exam_id, db)
-    return _format_exam_response(exam)
+    cohort = await db.get(Cohort, exam.cohort_id)
+    return _format_exam_response(exam, cohort_name=cohort.name if cohort else None)
 
 
 @router.patch("/admin/marks/exams/{exam_id}", response_model=ExamResponse)
