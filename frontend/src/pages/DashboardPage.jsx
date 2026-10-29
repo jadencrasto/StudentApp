@@ -120,7 +120,7 @@ function DeadlineItem({ a, index = 0 }) {
 }
 
 export default function DashboardPage() {
-  const { user, role, onboarding_completed, institution, isClassStudent } = useAuth()
+  const { user, role, onboarding_completed, institution, isClassStudent, isInInstitutionWithoutClass } = useAuth()
   const [assignments, setAssignments] = useState([])
   const [summaries, setSummaries] = useState([])
   const [classAttendanceData, setClassAttendanceData] = useState(null)
@@ -394,17 +394,35 @@ export default function DashboardPage() {
         <p className="text-slate-400 mt-1">{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
       </motion.div>
 
-      <MorningCheckin
-        data={morningCheckin}
-        isClassStudent={isClassStudent}
-        cohortName={user?.cohort_name || institution?.name}
-      />
-      {!isClassStudent && <UnmarkedAlert data={unmarkedReminder} />}
-      {!isClassStudent && <EndOfDaySummary data={endOfDaySummary} />}
+      {/* Join Card — shown FIRST for any student not yet fully enrolled in a class.
+          Handles all four pre-class states inside JoinCard:
+            State 1 – No institution yet           → "Enter institution code" form
+            State 2 – Institution request pending  → Waiting banner
+            State 3 – Institution request rejected → Try-again banner
+            State 4 – In institution, no class yet → "Enter class code" form  ← Boruto
+          isClassStudent students (State 7) get the green Enrolled badge further below. */}
+      {role === 'student' && !isClassStudent && (
+        <div className="mb-6">
+          <JoinCard />
+        </div>
+      )}
 
-      {/* Join Institution Card */}
-      {role === 'student' && (
-        <div className="mb-8">
+      {/* Personal timetable reminders — suppressed for in-institution-without-class
+          students: their one action is to enter a class code, not to mark personal
+          tracker entries. Fully independent students still see their reminders. */}
+      {!isInInstitutionWithoutClass && (
+        <MorningCheckin
+          data={morningCheckin}
+          isClassStudent={isClassStudent}
+          cohortName={user?.cohort?.name || institution?.name}
+        />
+      )}
+      {!isClassStudent && !isInInstitutionWithoutClass && <UnmarkedAlert data={unmarkedReminder} />}
+      {!isClassStudent && !isInInstitutionWithoutClass && <EndOfDaySummary data={endOfDaySummary} />}
+
+      {/* Enrolled badge — shown for fully-enrolled class students */}
+      {role === 'student' && isClassStudent && (
+        <div className="mb-6">
           <JoinCard />
         </div>
       )}

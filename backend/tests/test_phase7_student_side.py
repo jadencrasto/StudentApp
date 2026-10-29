@@ -417,3 +417,383 @@ class TestPhase7StudentSide:
         assert "Quantum Computing" in captured_system_instruction
         assert "Prof. Feynman" in captured_system_instruction
         assert "Official Class Attendance:" in captured_system_instruction
+
+
+    # ─────────────────────────────────────────────────────────────
+    # BUG 1 fix: /auth/me join-card state for every student type
+    # ─────────────────────────────────────────────────────────────
+
+    async def test_auth_me_institution_approved_no_class_shows_enter_class_code_state(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """
+        Regression: Boruto's state.
+        A student approved into an institution but with NO cohort_id must have:
+          institution != null, cohort == null,
+          join_request_status == 'approved', join_request_type == 'institution'
+        so that JoinCard renders the "Enter class code" (State 4) card, not nothing.
+        """
+        from app.models.institution import JoinRequest
+
+        inst = await create_institution(db_session, "Boruto Academy")
+        student = await create_user(
+            db_session,
+            f"boruto_{uuid.uuid4().hex[:6]}@leaf.edu",
+            role="student",
+            institution_id=inst.id,  # approved into institution
+            cohort_id=None,          # no class yet
+        )
+        # Simulate the approved institution JoinRequest that persists after approval
+        join_req = JoinRequest(
+            user_id=student.id,
+            institution_id=inst.id,
+            requested_cohort_id=None,
+            request_type="institution",
+            status="approved",
+        )
+        db_session.add(join_req)
+        await db_session.commit()
+
+        token = await login(client, student.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = await client.get("/api/v1/auth/me", headers=headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+
+        # institution present, cohort absent → JoinCard State 4
+        assert data["institution"] is not None
+        assert data["institution"]["id"] == str(inst.id)
+        assert data["cohort"] is None, "cohort must be null so JoinCard shows 'Enter class code'"
+
+        # JoinCard read these two fields to decide State 4 vs State 5/6
+        assert data["join_request_status"] == "approved"
+        assert data["join_request_type"] == "institution"
+
+    async def test_auth_me_no_institution_shows_enter_institution_code_state(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """State 1: fully independent student — no institution, no cohort, no request."""
+        student = await create_user(
+            db_session,
+            f"indep_join_{uuid.uuid4().hex[:6]}@test.com",
+            role="student",
+            institution_id=None,
+            cohort_id=None,
+        )
+        token = await login(client, student.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = await client.get("/api/v1/auth/me", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["institution"] is None
+        assert data["cohort"] is None
+        assert data["join_request_status"] is None
+        assert data["join_request_type"] is None
+
+    async def test_auth_me_institution_pending_shows_waiting_state(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """State 2: institution request submitted and still pending."""
+        from app.models.institution import JoinRequest
+
+        inst = await create_institution(db_session, "Pending Academy")
+        student = await create_user(
+            db_session,
+            f"pend_{uuid.uuid4().hex[:6]}@test.com",
+            role="student",
+            institution_id=None,
+            cohort_id=None,
+        )
+        jr = JoinRequest(
+            user_id=student.id,
+            institution_id=inst.id,
+            requested_cohort_id=None,
+            request_type="institution",
+            status="pending",
+        )
+        db_session.add(jr)
+        await db_session.commit()
+
+        token = await login(client, student.email)
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["institution"] is None           # not yet approved
+        assert data["cohort"] is None
+        assert data["join_request_status"] == "pending"
+        assert data["join_request_type"] == "institution"
+
+    async def test_auth_me_institution_rejected_shows_rejected_state(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """State 3: institution request rejected — student can try a new code."""
+        from app.models.institution import JoinRequest
+
+        inst = await create_institution(db_session, "Rejected Academy")
+        student = await create_user(
+            db_session,
+            f"rej_{uuid.uuid4().hex[:6]}@test.com",
+            role="student",
+            institution_id=None,
+            cohort_id=None,
+        )
+        jr = JoinRequest(
+            user_id=student.id,
+            institution_id=inst.id,
+            requested_cohort_id=None,
+            request_type="institution",
+            status="rejected",
+        )
+        db_session.add(jr)
+        await db_session.commit()
+
+        token = await login(client, student.email)
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["institution"] is None
+        assert data["join_request_status"] == "rejected"
+        assert data["join_request_type"] == "institution"
+
+    async def test_auth_me_class_pending_shows_class_waiting_state(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """State 5: in institution, class request pending."""
+        from app.models.institution import JoinRequest
+
+        inst = await create_institution(db_session, "Class-Pending Academy")
+        cohort = await create_cohort(db_session, inst.id, "Cohort-Pend")
+        student = await create_user(
+            db_session,
+            f"cpend_{uuid.uuid4().hex[:6]}@test.com",
+            role="student",
+            institution_id=inst.id,
+            cohort_id=None,
+        )
+        jr = JoinRequest(
+            user_id=student.id,
+            institution_id=inst.id,
+            requested_cohort_id=cohort.id,
+            request_type="class",
+            status="pending",
+        )
+        db_session.add(jr)
+        await db_session.commit()
+
+        token = await login(client, student.email)
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["institution"] is not None
+        assert data["cohort"] is None
+        assert data["join_request_status"] == "pending"
+        assert data["join_request_type"] == "class"
+        assert data["join_requested_cohort_name"] == "Cohort-Pend"
+
+    # ─────────────────────────────────────────────────────────────
+    # BUG 2 fix: chat 503 — friendly message for class & independent
+    # ─────────────────────────────────────────────────────────────
+
+    async def test_chat_returns_friendly_503_message_on_ai_unavailable_class_student(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """
+        When the AI layer raises AIServiceUnavailableError (e.g. Gemini 503 busy),
+        the chat endpoint must return HTTP 503 with a user-readable detail string,
+        NOT a generic 500. Tests this for a class student.
+        """
+        from app.services.ai_provider import AIServiceUnavailableError
+
+        inst = await create_institution(db_session, "Chat503 Inst")
+        cohort = await create_cohort(db_session, inst.id, "Cohort-503")
+        student = await create_user(
+            db_session,
+            f"chat503_class_{uuid.uuid4().hex[:6]}@inst.edu",
+            role="student",
+            institution_id=inst.id,
+            cohort_id=cohort.id,
+        )
+        token = await login(client, student.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Create a conversation
+        r_conv = await client.post(
+            "/api/v1/chat/conversations", json={"mode": "general"}, headers=headers
+        )
+        assert r_conv.status_code == 201
+        conv_id = r_conv.json()["id"]
+
+        busy_msg = "Google's AI is busy right now. Try again in a few minutes, or start from scratch."
+
+        with patch.object(
+            ai_provider,
+            "generate_chat",
+            side_effect=AIServiceUnavailableError(busy_msg),
+        ):
+            r_msg = await client.post(
+                f"/api/v1/chat/conversations/{conv_id}/messages",
+                json={"message": "Help me study."},
+                headers=headers,
+            )
+
+        assert r_msg.status_code == 503, r_msg.text
+        assert busy_msg in r_msg.json()["detail"]
+
+    async def test_chat_returns_friendly_503_message_on_ai_unavailable_independent_student(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """
+        Same 503 friendly-message test for an independent (no institution) student
+        — verifies the personal-timetable context branch doesn't mask the error.
+        """
+        from app.services.ai_provider import AIServiceUnavailableError
+
+        student = await create_user(
+            db_session,
+            f"chat503_indep_{uuid.uuid4().hex[:6]}@test.com",
+            role="student",
+            institution_id=None,
+            cohort_id=None,
+        )
+        token = await login(client, student.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        r_conv = await client.post(
+            "/api/v1/chat/conversations", json={"mode": "general"}, headers=headers
+        )
+        assert r_conv.status_code == 201
+        conv_id = r_conv.json()["id"]
+
+        busy_msg = "Google's AI is busy right now. Try again in a few minutes, or start from scratch."
+
+        with patch.object(
+            ai_provider,
+            "generate_chat",
+            side_effect=AIServiceUnavailableError(busy_msg),
+        ):
+            r_msg = await client.post(
+                f"/api/v1/chat/conversations/{conv_id}/messages",
+                json={"message": "What is photosynthesis?"},
+                headers=headers,
+            )
+
+        assert r_msg.status_code == 503, r_msg.text
+        assert busy_msg in r_msg.json()["detail"]
+
+    async def test_chat_does_not_retry_on_daily_quota_exhausted(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """
+        A 429 / RESOURCE_EXHAUSTED should surface as 503 with a daily-quota message
+        and must NOT be retried (the error is terminal for the day).
+        Verifies the quota path through the endpoint, not just ai_provider internals.
+        """
+        from app.services.ai_provider import AIServiceUnavailableError
+
+        student = await create_user(
+            db_session,
+            f"chat429_{uuid.uuid4().hex[:6]}@test.com",
+            role="student",
+            institution_id=None,
+            cohort_id=None,
+        )
+        token = await login(client, student.email)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        r_conv = await client.post(
+            "/api/v1/chat/conversations", json={"mode": "general"}, headers=headers
+        )
+        assert r_conv.status_code == 201
+        conv_id = r_conv.json()["id"]
+
+        quota_msg = "AI daily quota reached. Please try again tomorrow."
+        call_count = 0
+
+        async def quota_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise AIServiceUnavailableError(quota_msg)
+
+        with patch.object(ai_provider, "generate_chat", side_effect=quota_side_effect):
+            r_msg = await client.post(
+                f"/api/v1/chat/conversations/{conv_id}/messages",
+                json={"message": "Any question."},
+                headers=headers,
+            )
+
+        assert r_msg.status_code == 503, r_msg.text
+        assert quota_msg in r_msg.json()["detail"]
+        # The mock is only called once — no retry on quota exhaustion
+        assert call_count == 1, f"Expected 1 call (no retry on quota), got {call_count}"
+
+    async def test_ai_chat_context_reads_personal_data_for_independent_student(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """
+        Phase 7 context code for independent student: the system_instruction must
+        contain personal timetable data (if available) and personal attendance summary.
+        """
+        from datetime import time as dt_time
+
+        student = await create_user(
+            db_session,
+            f"chat_indep_{uuid.uuid4().hex[:6]}@test.com",
+            role="student",
+            institution_id=None,
+            cohort_id=None,
+        )
+
+        # Add a personal subject and timetable entry for today
+        subject = Subject(user_id=student.id, name="Personal Algebra")
+        db_session.add(subject)
+        await db_session.commit()
+        await db_session.refresh(subject)
+
+        today_weekday = datetime.now().weekday()
+        entry = TimetableEntry(
+            user_id=student.id,
+            subject_id=subject.id,
+            day_of_week=today_weekday,
+            start_time=dt_time(8, 0),
+            end_time=dt_time(9, 0),
+            room="Room 7",
+            is_active=True,
+        )
+        db_session.add(entry)
+
+        # Add a personal attendance record
+        att = AttendanceRecord(
+            user_id=student.id,
+            subject_id=subject.id,
+            class_date=datetime.now().date(),
+            status=AttendanceStatus.present,
+        )
+        db_session.add(att)
+        await db_session.commit()
+
+        conv = await chat_service.create_conversation(db_session, student.id, title="Indep Chat")
+
+        captured = {}
+
+        async def mock_generate(messages, system_instruction=None, **kwargs):
+            captured["system_instruction"] = system_instruction
+            return "Here is your personal schedule."
+
+        with patch.object(ai_provider, "generate_chat", side_effect=mock_generate):
+            await chat_service.send_message(
+                db_session,
+                conversation_id=conv.id,
+                user_id=student.id,
+                user_message="What is my schedule?",
+            )
+
+        si = captured.get("system_instruction", "")
+        assert si, "system_instruction must not be empty"
+        assert "Personal Algebra" in si, "Personal subject name must appear in context"
+        assert "Personal Attendance Tracker:" in si, "Personal attendance summary must appear"
