@@ -629,7 +629,7 @@ class TestPhase7StudentSide:
         assert r_conv.status_code == 201
         conv_id = r_conv.json()["id"]
 
-        busy_msg = "Google's AI is busy right now. Try again in a few minutes, or start from scratch."
+        busy_msg = "Google's AI is busy right now. Please try again in a few minutes."
 
         with patch.object(
             ai_provider,
@@ -644,6 +644,7 @@ class TestPhase7StudentSide:
 
         assert r_msg.status_code == 503, r_msg.text
         assert busy_msg in r_msg.json()["detail"]
+        assert "start from scratch" not in r_msg.json()["detail"], "Chat error must not mention start from scratch"
 
     async def test_chat_returns_friendly_503_message_on_ai_unavailable_independent_student(
         self, client: AsyncClient, db_session: AsyncSession
@@ -670,7 +671,7 @@ class TestPhase7StudentSide:
         assert r_conv.status_code == 201
         conv_id = r_conv.json()["id"]
 
-        busy_msg = "Google's AI is busy right now. Try again in a few minutes, or start from scratch."
+        busy_msg = "Google's AI is busy right now. Please try again in a few minutes."
 
         with patch.object(
             ai_provider,
@@ -685,6 +686,52 @@ class TestPhase7StudentSide:
 
         assert r_msg.status_code == 503, r_msg.text
         assert busy_msg in r_msg.json()["detail"]
+        assert "start from scratch" not in r_msg.json()["detail"], "Chat error must not mention start from scratch"
+
+    async def test_503_messages_distinction_chat_vs_timetable(self, monkeypatch: pytest.MonkeyPatch):
+        """
+        Decision 4: Verify copy distinction between Chat 503 and Timetable 503.
+        - Chat 503 must say: 'Google's AI is busy right now. Please try again in a few minutes.'
+          and MUST NOT say 'or start from scratch'.
+        - Timetable 503 must keep 'or start from scratch' (for manual timetable entry).
+        """
+        from app.services.ai_provider import ai_provider, AIServiceUnavailableError
+        import anyio
+
+        # 1. Verify AI provider error mapping for 503 (used by chat)
+        class Mock503Exception(Exception):
+            def __str__(self):
+                return "503 UNAVAILABLE. The model is overloaded."
+
+        def failing_sync():
+            raise Mock503Exception()
+
+        with pytest.raises(AIServiceUnavailableError) as exc_info:
+            await ai_provider._execute_with_retry_and_timeout(failing_sync)
+
+        chat_err = str(exc_info.value)
+        assert chat_err == "Google's AI is busy right now. Please try again in a few minutes."
+        assert "start from scratch" not in chat_err
+
+        # 2. Verify Timetable error message retains 'start from scratch'
+        from app.services.class_timetable_service import extract_timetable_from_image
+        from app.services.gemini_timetable_extractor import GeminiTimetableExtractor
+
+        async def fake_sleep(seconds: float):
+            pass
+
+        monkeypatch.setattr(anyio, "sleep", fake_sleep)
+        monkeypatch.setattr(
+            GeminiTimetableExtractor,
+            "_extract_bytes_sync",
+            lambda self, b: (_ for _ in ()).throw(Mock503Exception()),
+        )
+
+        tt_result = await extract_timetable_from_image(b"fake_image_bytes")
+        assert tt_result["status"] == "failed"
+        assert tt_result["is_503"] is True
+        assert tt_result["message"] == "Google's AI is busy right now. Try again in a few minutes, or start from scratch."
+        assert "start from scratch" in tt_result["message"]
 
     async def test_chat_does_not_retry_on_daily_quota_exhausted(
         self, client: AsyncClient, db_session: AsyncSession

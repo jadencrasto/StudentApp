@@ -181,7 +181,7 @@ class AIProvider:
                     quota_cooldown_tracker.set_cooldown(300.0)
                     raise AIServiceUnavailableError("AI daily quota reached. Please try again tomorrow.")
                 elif code == 503 or status == "UNAVAILABLE" or "503" in str(exc).lower() or "unavailable" in str(exc).lower():
-                    raise AIServiceUnavailableError("Google's AI is busy right now. Try again in a few minutes, or start from scratch.")
+                    raise AIServiceUnavailableError("Google's AI is busy right now. Please try again in a few minutes.")
                 else:
                     raise AIServiceUnavailableError("The AI service is temporarily unavailable.") from exc
 
@@ -224,7 +224,7 @@ class AIProvider:
                     quota_cooldown_tracker.set_cooldown(300.0)
                     raise AIServiceUnavailableError("AI daily quota reached. Please try again tomorrow.")
                 elif code == 503 or status == "UNAVAILABLE" or "503" in str(exc).lower() or "unavailable" in str(exc).lower():
-                    raise AIServiceUnavailableError("Google's AI is busy right now. Try again in a few minutes, or start from scratch.")
+                    raise AIServiceUnavailableError("Google's AI is busy right now. Please try again in a few minutes.")
                 raise AIServiceUnavailableError("The AI service is temporarily unavailable.") from exc
 
     # -------------------------------------------------------------------------

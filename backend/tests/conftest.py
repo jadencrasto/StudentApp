@@ -8,7 +8,7 @@ Key design decisions:
   • A fresh database is created for each test-session (all tables are
     recreated from the ORM models).
 """
-import os, asyncio, uuid
+import os, asyncio, uuid, tempfile, shutil
 from typing import AsyncGenerator
 
 import pytest
@@ -32,9 +32,12 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-ci-only-not-production"
 os.environ.setdefault("DEBUG", "true")
 os.environ.setdefault("GEMINI_API_KEY_CHAT", "test-gemini-chat-key")
 os.environ.setdefault("GEMINI_API_KEY_TIMETABLE", "test-gemini-timetable-key")
+_TEST_UPLOAD_DIR = tempfile.mkdtemp(prefix="sais_test_uploads_")
+os.environ["UPLOAD_DIR"] = _TEST_UPLOAD_DIR
 
 # Now it is safe to import the app
 from app.config import settings  # noqa: E402
+settings.UPLOAD_DIR = _TEST_UPLOAD_DIR
 from app.database import Base  # noqa: E402
 
 # ── 2. Create a separate async engine for tests ───────────────────────

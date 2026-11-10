@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -326,7 +327,7 @@ async def test_admin_events_view_needs_date_section(client: AsyncClient, sample_
 
 
 @pytest.mark.asyncio
-async def test_same_title_date_different_college_both_inserted(db_session: AsyncSession):
+async def test_same_title_date_different_college_both_inserted(db_session: AsyncSession, tmp_path: Path):
     """
     Verify that independent events (institution_id=None) with the exact same title
     and date from DIFFERENT colleges are both inserted and never treated as duplicates.
@@ -353,7 +354,7 @@ async def test_same_title_date_different_college_both_inserted(db_session: Async
         },
     ]
 
-    fallback_file = Path("./uploads/test_college_fallback.json")
+    fallback_file = tmp_path / "test_college_fallback.json"
     saved = await save_events_with_fallback(db_session, events_to_insert, fallback_file)
     await db_session.commit()
 
