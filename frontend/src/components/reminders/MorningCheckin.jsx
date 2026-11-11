@@ -27,7 +27,7 @@ const dayOffMessage = (weekday) => {
 
 // ─── component ──────────────────────────────────────────────────────────────
 
-export default function MorningCheckin({ data }) {
+export default function MorningCheckin({ data, isClassStudent = false, cohortName = '' }) {
   /** keyed by slotKey(subjectId, startTime) → { status, markedAt } */
   const [localMarked, setLocalMarked] = useState({});
   /** which slot key is currently being saved */
@@ -194,8 +194,10 @@ export default function MorningCheckin({ data }) {
 
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-start mb-1">
-            <h3 className="text-white font-semibold text-lg">Morning Check-in</h3>
-            {!allMarked && (
+            <h3 className="text-white font-semibold text-lg">
+              {isClassStudent ? (cohortName ? `Today's Schedule • ${cohortName}` : "Today's Class Schedule") : 'Morning Check-in'}
+            </h3>
+            {!isClassStudent && !allMarked && (
               <button
                 onClick={handleMarkAllPresent}
                 className="text-xs font-semibold px-4 py-2 min-h-[44px] bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 hover:text-emerald-200 transition-colors rounded-full flex items-center gap-1.5 border border-emerald-500/20"
@@ -207,8 +209,9 @@ export default function MorningCheckin({ data }) {
           </div>
 
           <p className="text-emerald-100/80 text-sm mb-4">
-            You have {data.total} class{data.total !== 1 ? 'es' : ''} today •{' '}
-            {totalMarked}/{data.total} marked
+            {isClassStudent
+              ? `You have ${data.total} class${data.total !== 1 ? 'es' : ''} scheduled today (Official Class Timetable)`
+              : `You have ${data.total} class${data.total !== 1 ? 'es' : ''} today • ${totalMarked}/${data.total} marked`}
           </p>
 
           <div className="space-y-3">
@@ -225,7 +228,11 @@ export default function MorningCheckin({ data }) {
                   className="flex flex-col p-3 bg-slate-900/40 backdrop-blur-sm rounded-lg border border-slate-800/50 hover:border-slate-700/50 transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    {isProcessing ? (
+                    {isClassStudent ? (
+                      <div className="w-4 h-4 rounded-full bg-emerald-400/20 border border-emerald-400/40 flex items-center justify-center">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      </div>
+                    ) : isProcessing ? (
                       <Loader2 size={18} className="text-emerald-400 animate-spin" />
                     ) : isMarked ? (
                       <CheckCircle size={18} className="text-emerald-400" />
@@ -237,10 +244,10 @@ export default function MorningCheckin({ data }) {
                       <p className="text-white font-medium text-sm">{cls.subject_name}</p>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {cls.start_time} - {cls.end_time}
-                        {cls.room ? ` • ${cls.room}` : ''}
+                        {cls.room ? ` • Room: ${cls.room}` : ''}
+                        {cls.notes ? ` • ${cls.notes}` : ''}
                       </p>
-                      {/* Bug 2 — show marked timestamp after marking */}
-                      {isMarked && markedTime && (
+                      {!isClassStudent && isMarked && markedTime && (
                         <p className="text-xs text-emerald-500/80 mt-0.5">
                           ✓ Marked at {markedTime}
                         </p>
@@ -248,8 +255,8 @@ export default function MorningCheckin({ data }) {
                     </div>
                   </div>
 
-                  {/* Inline buttons for unmarked classes */}
-                  {!isMarked && !isProcessing && (
+                  {/* Inline buttons for unmarked classes (Personal tracker only) */}
+                  {!isClassStudent && !isMarked && !isProcessing && (
                     <div className="flex flex-wrap gap-2 mt-3 pl-[30px]">
                       <button
                         onClick={() => handleMark(cls, 'present')}
