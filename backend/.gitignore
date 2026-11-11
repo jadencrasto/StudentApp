@@ -1,6 +1,7 @@
 # Environment
 .env
 .env.seed
+.env.backup
 # Database
 *.db
 *.db-shm
