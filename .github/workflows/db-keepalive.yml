@@ -3,13 +3,21 @@
 # Runs a harmless SELECT 1 against the Supabase database twice per week
 # to prevent the free-tier 7-day inactivity pause.
 #
-# SETUP:
-#   1. In Supabase SQL Editor, run the restricted user creation script (see Phase 8A docs).
-#   2. Go to github.com/jadencrasto/StudentApp → Settings → Secrets and variables → Actions
-#   3. Create a repository secret named: SUPABASE_KEEPALIVE_DSN
+# SECURITY REQUIREMENTS:
+#   - This repo is public. The secret SUPABASE_KEEPALIVE_DSN must hold ONLY the
+#     restricted user's (keepalive_user) connection string.
+#   - NEVER put your real database administrator or application password in this secret.
+#   - keepalive_user has zero table access, zero schema privileges, and can only execute SELECT 1.
+#
+# SETUP & ACTIVATION ORDER:
+#   1. In Supabase SQL Editor, run the restricted user creation SQL (creates keepalive_user).
+#   2. Merge this branch (phase-8a-backups) into main and push to GitHub so the workflow file exists on main.
+#   3. Go to github.com/jadencrasto/StudentApp → Settings → Secrets and variables → Actions.
+#   4. Add the repository secret: SUPABASE_KEEPALIVE_DSN
 #      Value: postgresql://keepalive_user.<project-ref>:<password>@<pooler-host>:5432/postgres
 #      NOTE: Use port 5432 (Session pooler), NOT port 6543, and NOT the direct IPv6 connection.
 #            GitHub Actions runners only support IPv4, which the pooler supports.
+#   5. In GitHub → Actions → "DB Keep-Alive" → click "Run workflow" to verify.
 #
 name: DB Keep-Alive
 
