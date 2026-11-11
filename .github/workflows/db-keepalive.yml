@@ -4,24 +4,23 @@
 # to prevent the free-tier 7-day inactivity pause.
 #
 # SETUP:
-#   1. Go to github.com/jadencrasto/StudentApp → Settings → Secrets → Actions
-#   2. Create a secret named SUPABASE_DB_KEEPALIVE_DSN
-#      Value: postgresql://postgres.<ref>:<password>@<host>:5432/postgres
-#      (the DIRECT connection string from Supabase dashboard, not the pooler)
-#   3. This workflow uses psql inside the postgres Docker container.
-#
-# SECURITY NOTE:
-#   - The repo is PUBLIC. Only repository secrets are safe here.
-#   - The secret is never printed in logs (GitHub masks it automatically).
-#   - This runs SELECT 1 only — no data is read or written.
+#   1. In Supabase SQL Editor, run the restricted user creation script (see Phase 8A docs).
+#   2. Go to github.com/jadencrasto/StudentApp → Settings → Secrets and variables → Actions
+#   3. Create a repository secret named: SUPABASE_KEEPALIVE_DSN
+#      Value: postgresql://keepalive_user.<project-ref>:<password>@<pooler-host>:5432/postgres
+#      NOTE: Use port 5432 (Session pooler), NOT port 6543, and NOT the direct IPv6 connection.
+#            GitHub Actions runners only support IPv4, which the pooler supports.
 #
 name: DB Keep-Alive
 
 on:
   schedule:
-    # Every Monday and Thursday at 06:00 UTC
+    # Every Monday and Thursday at 06:00 UTC (runs every 3-4 days, well under 7-day pause threshold)
     - cron: '0 6 * * 1,4'
-  workflow_dispatch:  # Allow manual trigger for testing
+  workflow_dispatch:  # Manual run button in GitHub Actions tab
+
+permissions:
+  contents: read
 
 jobs:
   keepalive:
@@ -29,15 +28,18 @@ jobs:
     steps:
       - name: Ping database with SELECT 1
         env:
-          PGDATABASE_URL: ${{ secrets.SUPABASE_DB_KEEPALIVE_DSN }}
+          PGDATABASE_URL: ${{ secrets.SUPABASE_KEEPALIVE_DSN }}
         run: |
           if [ -z "$PGDATABASE_URL" ]; then
-            echo "::error::SUPABASE_DB_KEEPALIVE_DSN secret is not set."
+            echo "Notice: SUPABASE_KEEPALIVE_DSN secret is not set. Skipping keep-alive ping."
+            exit 0
+          fi
+          # Install lightweight postgresql client
+          sudo apt-get -qq update && sudo apt-get -qq install -y postgresql-client > /dev/null 2>&1
+          # Run harmless SELECT 1 — output redirected to /dev/null so no connection details are logged
+          if psql "$PGDATABASE_URL" -c "SELECT 1;" > /dev/null 2>&1; then
+            echo "Keep-alive ping succeeded at $(date -u)"
+          else
+            echo "Warning: Database ping failed. Check credentials or connection pooler status."
             exit 1
           fi
-          # Install psql
-          sudo apt-get -qq update && sudo apt-get -qq install -y postgresql-client > /dev/null
-          # Run SELECT 1 — no data, no secrets in output
-          psql "$PGDATABASE_URL" -c "SELECT 1;" > /dev/null 2>&1
-          echo "Keep-alive ping succeeded at $(date -u)"
-
