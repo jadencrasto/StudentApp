@@ -6,6 +6,7 @@ uvicorn[standard]>=0.29.0
 
 # Database
 sqlalchemy>=2.0.30
+greenlet==3.5.6                # required for SQLAlchemy asyncio
 aiosqlite>=0.20.0          # async SQLite driver (local dev fallback)
 asyncpg>=0.29.0            # async PostgreSQL driver (Supabase)
 alembic>=1.13.1            # database migrations
@@ -19,6 +20,7 @@ slowapi>=0.1.10                    # rate limiting
 # Validation & Settings
 pydantic>=2.7.1
 pydantic-settings>=2.2.1
+email-validator==2.3.0         # required by pydantic for EmailStr validation
 
 # AI / NLP
 # spaCy is optional at runtime; extractor falls back to regex/date parsing when unavailable
@@ -35,6 +37,8 @@ apscheduler>=3.10.4
 python-dotenv>=1.0.1
 python-dateutil>=2.9.0
 httpx>=0.27.0              # async HTTP client
+anyio==4.16.0                  # async concurrency utilities
+urllib3==2.8.0                 # HTTP connection utilities & retries
 aiofiles>=23.2.1           # async file I/O
 google-generativeai>=0.8.5 # Gemini API client
 google-genai>=0.8.0        # New Gemini client (from google import genai)
