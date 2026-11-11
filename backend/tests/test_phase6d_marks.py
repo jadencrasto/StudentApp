@@ -495,7 +495,13 @@ class TestPhase6DClassMarks:
         assert float(data_a["exams"][0]["marks_obtained"]) == 18.0
         assert float(data_a["exams"][0]["percentage"]) == 90.0
         # Ensure Student B's info is NOT in response
-        assert "12" not in str(data_a)
+        obtained_marks = [
+            float(e["marks_obtained"])
+            for e in data_a.get("exams", [])
+            if e.get("marks_obtained") is not None
+        ]
+        assert 12.0 not in obtained_marks
+        assert str(st_b.id) not in str(data_a)
         assert st_b.email not in str(data_a)
         assert "rank" not in data_a
         assert "class_average" not in data_a

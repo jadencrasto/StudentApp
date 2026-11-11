@@ -4,16 +4,20 @@ Entry point. Run with: uvicorn app.main:app --reload
 """
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter, Request
+import logging
+from fastapi import FastAPI, APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import settings
 from app.core.rate_limiter import limiter
 from app.database import (
-    engine, Base,
+    engine, Base, get_db,
     ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column,
     ensure_activity_recurrence_columns, ensure_notification_columns,
     ensure_attendance_slot_columns, ensure_phase5a_columns, ensure_phase6a_columns,
@@ -163,3 +167,25 @@ app.include_router(google_oauth_router)  # OAuth at root: /auth/google/*
 @app.get("/health")
 async def health():
     return {"status": "ok", "app": settings.APP_NAME}
+
+
+logger = logging.getLogger(__name__)
+
+
+@app.get("/health/db")
+@limiter.limit("10/minute", key_func=lambda request: "global")
+async def health_db(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Database liveness check. Runs a harmless SELECT 1.
+    Rate limited to 10 requests/minute globally.
+    Returns no error details on failure — just a generic message.
+    """
+    try:
+        await db.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception:
+        logger.exception("health/db check failed")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "database": "unavailable"},
+        )
