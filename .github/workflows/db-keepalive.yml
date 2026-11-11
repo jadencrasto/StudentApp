@@ -1,0 +1,43 @@
+# Database Keep-Alive — GitHub Actions workflow
+#
+# Runs a harmless SELECT 1 against the Supabase database twice per week
+# to prevent the free-tier 7-day inactivity pause.
+#
+# SETUP:
+#   1. Go to github.com/jadencrasto/StudentApp → Settings → Secrets → Actions
+#   2. Create a secret named SUPABASE_DB_KEEPALIVE_DSN
+#      Value: postgresql://postgres.<ref>:<password>@<host>:5432/postgres
+#      (the DIRECT connection string from Supabase dashboard, not the pooler)
+#   3. This workflow uses psql inside the postgres Docker container.
+#
+# SECURITY NOTE:
+#   - The repo is PUBLIC. Only repository secrets are safe here.
+#   - The secret is never printed in logs (GitHub masks it automatically).
+#   - This runs SELECT 1 only — no data is read or written.
+#
+name: DB Keep-Alive
+
+on:
+  schedule:
+    # Every Monday and Thursday at 06:00 UTC
+    - cron: '0 6 * * 1,4'
+  workflow_dispatch:  # Allow manual trigger for testing
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping database with SELECT 1
+        env:
+          PGDATABASE_URL: ${{ secrets.SUPABASE_DB_KEEPALIVE_DSN }}
+        run: |
+          if [ -z "$PGDATABASE_URL" ]; then
+            echo "::error::SUPABASE_DB_KEEPALIVE_DSN secret is not set."
+            exit 1
+          fi
+          # Install psql
+          sudo apt-get -qq update && sudo apt-get -qq install -y postgresql-client > /dev/null
+          # Run SELECT 1 — no data, no secrets in output
+          psql "$PGDATABASE_URL" -c "SELECT 1;" > /dev/null 2>&1
+          echo "Keep-alive ping succeeded at $(date -u)"
+
