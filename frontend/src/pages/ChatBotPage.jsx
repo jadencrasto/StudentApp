@@ -379,7 +379,19 @@ export default function ChatBotPage() {
       })
       await loadConversations() // refresh titles
     } catch (e) {
-      toast.error('Failed to send message')
+      // Surface the backend's friendly error (e.g. "AI busy", "quota reached")
+      // before falling back to a generic message.
+      const httpStatus = e?.response?.status
+      const detail = e?.response?.data?.detail
+      let msg
+      if (detail) {
+        msg = detail
+      } else if (httpStatus === 503) {
+        msg = 'The AI assistant is temporarily unavailable. Please try again in a moment.'
+      } else {
+        msg = 'Failed to send message. Please try again.'
+      }
+      toast.error(msg, { duration: 5000 })
       setMessages((prev) => prev.filter((m) => m.id !== 'temp-user'))
     } finally {
       setSending(false)

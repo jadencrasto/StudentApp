@@ -27,12 +27,9 @@ import AlertBanner from "../components/attendance/AlertBanner";
 import RecoveryPlanModal from "../components/attendance/RecoveryPlanModal";
 
 export default function AttendancePage() {
-  const { user } = useAuth();
+  const { user, isClassStudent } = useAuth();
 
-  // Mode: "class" | "personal"
-  const [attendanceMode, setAttendanceMode] = useState("personal");
   const [classAttendance, setClassAttendance] = useState(null);
-
   const [summaries, setSummaries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -56,18 +53,12 @@ export default function AttendancePage() {
 
   async function loadData() {
     try {
-      const [personalRes, classRes] = await Promise.all([
-        getSummary(),
-        classAttendanceAPI.getStudentClassAttendance().catch(() => ({ data: { enrolled: false } })),
-      ]);
-      setSummaries(personalRes.data);
-
-      if (classRes.data?.enrolled) {
-        setClassAttendance(classRes.data);
-        setAttendanceMode("class");
+      if (isClassStudent) {
+        const classRes = await classAttendanceAPI.getStudentClassAttendance().catch(() => ({ data: { enrolled: false } }));
+        setClassAttendance(classRes.data?.enrolled ? classRes.data : null);
       } else {
-        setClassAttendance(null);
-        setAttendanceMode("personal");
+        const personalRes = await getSummary();
+        setSummaries(personalRes.data || []);
       }
     } catch (err) {
       toast.error("Failed to load attendance data");
@@ -78,8 +69,10 @@ export default function AttendancePage() {
 
   useEffect(() => {
     loadData();
-    loadAlerts();
-  }, []);
+    if (!isClassStudent) {
+      loadAlerts();
+    }
+  }, [isClassStudent]);
 
   async function handleMark(subjectId, status) {
     setActionLoading(true);
@@ -175,34 +168,8 @@ export default function AttendancePage() {
           </p>
         </div>
 
-        {/* View Switcher (Only shown if student is enrolled in a class cohort) */}
-        {classAttendance?.enrolled && (
-          <div className="flex items-center gap-1.5 p-1 bg-slate-900/80 border border-white/10 rounded-xl">
-            <button
-              onClick={() => setAttendanceMode("class")}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
-                attendanceMode === "class"
-                  ? "bg-emerald-500 text-black shadow-md shadow-emerald-500/20"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <Building size={14} /> Official Class Attendance
-            </button>
-            <button
-              onClick={() => setAttendanceMode("personal")}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
-                attendanceMode === "personal"
-                  ? "bg-emerald-500 text-black shadow-md shadow-emerald-500/20"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <Layers size={14} /> Personal Tracker
-            </button>
-          </div>
-        )}
-
-        {/* Action Button for Personal Tracker */}
-        {(!classAttendance?.enrolled || attendanceMode === "personal") && (
+        {/* Action Button for Personal Tracker only */}
+        {!isClassStudent && (
           <Button onClick={() => setShowAddModal(true)} className="gap-2 self-start md:self-auto">
             <Plus size={18} /> Add Subject
           </Button>
@@ -223,9 +190,9 @@ export default function AttendancePage() {
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          VIEW 1: OFFICIAL CLASS ATTENDANCE (PHASE 6B)
+          VIEW 1: OFFICIAL CLASS ATTENDANCE (PHASE 6B / 7)
       ───────────────────────────────────────────────────────────── */}
-      {classAttendance?.enrolled && attendanceMode === "class" && (
+      {isClassStudent && classAttendance?.enrolled && (
         <div className="space-y-6">
           {/* Class Banner */}
           <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-slate-900/80 to-slate-900 border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -392,10 +359,20 @@ export default function AttendancePage() {
         </div>
       )}
 
+      {isClassStudent && !classAttendance?.enrolled && (
+        <div className="p-8 rounded-2xl bg-slate-900/50 border border-white/10 text-center">
+          <Clock size={32} className="mx-auto text-emerald-400 mb-3" />
+          <h3 className="text-base font-bold text-white">Class Attendance</h3>
+          <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+            No official class attendance records have been published by your teachers yet.
+          </p>
+        </div>
+      )}
+
       {/* ─────────────────────────────────────────────────────────────
           VIEW 2: PERSONAL ATTENDANCE TRACKER (INDEPENDENT OR CUSTOM)
       ───────────────────────────────────────────────────────────── */}
-      {(!classAttendance?.enrolled || attendanceMode === "personal") && (
+      {!isClassStudent && (
         <div>
           {summaries.length === 0 ? (
             <EmptyState

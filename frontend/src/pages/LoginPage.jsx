@@ -48,7 +48,14 @@ export default function LoginPage() {
         }
       }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed. Please try again.');
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else if (Array.isArray(detail) && detail[0]?.msg) {
+        setError(detail[0].msg);
+      } else {
+        setError('Login failed. Please check your credentials.');
+      }
       toast.error('Login failed');
     } finally {
       setLoading(false);

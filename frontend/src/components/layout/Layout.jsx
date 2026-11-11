@@ -36,20 +36,25 @@ const SUPER_ADMIN_NAV = [
 ]
 
 export default function Layout() {
-  const { user, role, logout } = useAuth()
+  const { user, role, logout, isClassStudent } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Students in an approved class see Marks; independent students have personal attendance/timetable
+  const studentNavItems = isClassStudent
+    ? STUDENT_NAV
+    : STUDENT_NAV.filter(item => item.to !== '/dashboard/marks')
 
   const navItems = role === 'super_admin'
     ? SUPER_ADMIN_NAV
     : role === 'admin'
     ? ADMIN_NAV
     : role === 'student'
-    ? STUDENT_NAV
+    ? studentNavItems
     : []
 
-  // Start background checks for native browser notifications (students only)
-  useClassNotifications(role === 'student')
+  // Start background checks for native browser notifications (independent students only)
+  useClassNotifications(role === 'student' && !isClassStudent)
 
   function closeMobile() { setMobileOpen(false) }
 

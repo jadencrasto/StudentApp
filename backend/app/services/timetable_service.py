@@ -1,4 +1,6 @@
+import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from difflib import SequenceMatcher
 from uuid import UUID
 
@@ -8,10 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.attendance import AttendanceRecord, AttendanceStatus, Subject
 from app.models.timetable import TimetableDocument, TimetableEntry
+from app.models.user import User
+from app.models.class_timetable import ClassTimetable
 from app.services.gemini_timetable_extractor import GeminiTimetableExtractor
 
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def _parse_time_string(value):
@@ -164,9 +170,54 @@ async def get_timetable_entries(user_id: UUID, db: AsyncSession) -> list[dict]:
     return items
 
 
+async def is_class_student(user_id: UUID, db: AsyncSession) -> tuple[bool, User | None]:
+    user = await db.get(User, user_id)
+    if (
+        user
+        and user.role == "student"
+        and user.is_active
+        and user.institution_id is not None
+        and user.cohort_id is not None
+    ):
+        return True, user
+    return False, user
+
+
 async def get_today_classes(user_id: UUID, db: AsyncSession) -> list[dict]:
-    today = datetime.now()
+    is_class, user = await is_class_student(user_id, db)
+    today = datetime.now(IST)
     weekday = today.weekday()
+
+    if is_class and user and user.cohort_id:
+        published = await db.scalar(
+            select(ClassTimetable).where(
+                ClassTimetable.cohort_id == user.cohort_id,
+                ClassTimetable.status == "published",
+            )
+        )
+        if not published or not published.entries:
+            return []
+
+        classes = []
+        for idx, entry in enumerate(published.entries):
+            if int(entry.get("day_of_week", -1)) == weekday:
+                slot_id = uuid.uuid5(user.cohort_id, f"slot_{entry.get('day_of_week')}_{entry.get('start_time')}_{idx}")
+                classes.append({
+                    "id": str(slot_id),
+                    "subject_id": str(slot_id),
+                    "subject_name": entry.get("subject") or entry.get("subject_name") or "Class",
+                    "day_of_week": int(entry.get("day_of_week", weekday)),
+                    "start_time": entry.get("start_time", "09:00"),
+                    "end_time": entry.get("end_time", "10:00"),
+                    "room": entry.get("room"),
+                    "notes": entry.get("teacher") or entry.get("notes"),
+                    "is_active": True,
+                    "attendance_status": None,
+                    "attendance_id": None,
+                })
+        classes.sort(key=lambda x: x.get("start_time", ""))
+        return classes
+
     today_date = today.date()
     
     result = await db.execute(
@@ -219,7 +270,16 @@ async def delete_timetable_entry(user_id: UUID, entry_id: UUID, db: AsyncSession
 
 
 async def get_morning_checkin(user_id: UUID, db: AsyncSession) -> dict:
-    today = datetime.now()
+    is_class, _ = await is_class_student(user_id, db)
+    if is_class:
+        return {
+            "type": "morning_checkin",
+            "classes": [],
+            "total": 0,
+            "marked": 0,
+        }
+
+    today = datetime.now(IST)
     day_of_week = today.weekday()
     today_date = today.date()
 
@@ -290,7 +350,15 @@ async def get_morning_checkin(user_id: UUID, db: AsyncSession) -> dict:
 
 
 async def get_unmarked_classes(user_id: UUID, db: AsyncSession) -> dict:
-    now = datetime.now()
+    is_class, _ = await is_class_student(user_id, db)
+    if is_class:
+        return {
+            "type": "unmarked",
+            "classes": [],
+            "count": 0,
+        }
+
+    now = datetime.now(IST)
     day_of_week = now.weekday()
     today_date = now.date()
     current_time = now.time()
@@ -336,7 +404,19 @@ async def get_unmarked_classes(user_id: UUID, db: AsyncSession) -> dict:
 
 
 async def get_end_of_day_summary(user_id: UUID, db: AsyncSession) -> dict:
-    today = datetime.now()
+    is_class, _ = await is_class_student(user_id, db)
+    if is_class:
+        return {
+            "type": "end_of_day",
+            "total_classes": 0,
+            "marked_classes": 0,
+            "present_count": 0,
+            "absent_count": 0,
+            "late_count": 0,
+            "unmarked_count": 0,
+        }
+
+    today = datetime.now(IST)
     day_of_week = today.weekday()
     today_date = today.date()
 

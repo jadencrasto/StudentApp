@@ -1,6 +1,6 @@
 # Environment
 .env
-
+.env.seed
 # Database
 *.db
 *.db-shm
