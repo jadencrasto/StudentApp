@@ -105,6 +105,13 @@ class AIProvider:
             raise AIConfigError("GEMINI_MODEL is not configured. Please set GEMINI_MODEL in .env.")
         return str(model).strip()
 
+    @property
+    def fallback_model_name(self) -> str | None:
+        fb = getattr(settings, "GEMINI_FALLBACK_MODEL", None)
+        if fb and str(fb).strip():
+            return str(fb).strip()
+        return None
+
     def get_chat_api_key(self) -> str:
         """Resolve Gemini API key for chat and estimation with fallback. Never logs or leaks key."""
         key = getattr(settings, "GEMINI_API_KEY_CHAT", None) or getattr(settings, "GEMINI_API_KEY", None)
@@ -286,6 +293,127 @@ class AIProvider:
             return await self._generate_chat_ollama(messages, system_instruction)
         return await self._generate_chat_gemini(messages, system_instruction)
 
+    async def _execute_chat_with_fallback(self, call_model_func: Callable[[str], str]) -> str:
+        """
+        Execute chat generation with 20s timeout per attempt, retrying primary model once on 503 after ~3s,
+        and falling back to GEMINI_FALLBACK_MODEL for exactly one try on persistent 503 or primary timeout.
+        On timeout of primary model, same-model retry is skipped, jumping straight to fallback.
+        429 daily quota never retries, never falls back, and keeps the 5-minute cooldown.
+        Fallback errors (404/setup) log one clear warning without keys and return friendly message without crashing.
+        """
+        primary_model = self.model_name
+        raw_fb = self.fallback_model_name
+        fallback_model = raw_fb if (raw_fb and raw_fb.strip().lower() != primary_model.strip().lower()) else None
+
+        async def _run_attempt(model: str) -> str:
+            return await asyncio.wait_for(
+                anyio.to_thread.run_sync(call_model_func, model),
+                timeout=20.0,
+            )
+
+        needs_primary_retry = False
+        needs_fallback = False
+
+        # --- Primary Model: Attempt 1 ---
+        try:
+            return await _run_attempt(primary_model)
+        except asyncio.TimeoutError:
+            logger.warning("Chat request to primary model '%s' timed out after 20s", primary_model)
+            # On a TIMEOUT, skip the same-model retry and go straight to the fallback.
+            if fallback_model:
+                needs_fallback = True
+            else:
+                raise AIServiceUnavailableError("The AI service timed out. Please try again later.")
+        except AIConfigError:
+            raise
+        except Exception as exc:
+            code, status, msg = _extract_google_error_info(exc)
+            logger.warning(
+                "Gemini API error on primary model '%s' (attempt 1/2): HTTP %s | status: %s | message: %s",
+                primary_model,
+                code,
+                status,
+                msg,
+            )
+            if code == 429 or status == "RESOURCE_EXHAUSTED" or "429" in str(exc).lower() or "quota" in str(exc).lower() or "resource_exhausted" in str(exc).lower():
+                quota_cooldown_tracker.set_cooldown(300.0)
+                raise AIServiceUnavailableError("AI daily quota reached. Please try again tomorrow.")
+            elif self._is_retryable_error(code, status, exc):
+                needs_primary_retry = True
+            elif code == 400 or status == "INVALID_ARGUMENT":
+                raise AIServiceUnavailableError(f"Invalid request to AI service: {msg}")
+            elif code in (401, 403) or status == "PERMISSION_DENIED":
+                raise AIConfigError("Gemini API key is invalid or lacks permissions. Please check GEMINI_API_KEY_CHAT.")
+            elif code == 404 or status == "NOT_FOUND":
+                raise AIConfigError(f"Gemini model is not available. Please verify GEMINI_MODEL in .env.")
+            else:
+                raise AIServiceUnavailableError("The AI service is temporarily unavailable.") from exc
+
+        # --- Primary Model: Attempt 2 (only on 503) ---
+        if needs_primary_retry:
+            logger.warning("Gemini 503 UNAVAILABLE on primary model '%s' (attempt 1/2). Retrying in ~3s...", primary_model)
+            await asyncio.sleep(3.0)
+            try:
+                return await _run_attempt(primary_model)
+            except asyncio.TimeoutError:
+                logger.warning("Chat request retry to primary model '%s' timed out after 20s", primary_model)
+                if fallback_model:
+                    needs_fallback = True
+                else:
+                    raise AIServiceUnavailableError("The AI service timed out. Please try again later.")
+            except AIConfigError:
+                raise
+            except Exception as exc:
+                code, status, msg = _extract_google_error_info(exc)
+                logger.warning(
+                    "Gemini API error on primary model '%s' (attempt 2/2): HTTP %s | status: %s | message: %s",
+                    primary_model,
+                    code,
+                    status,
+                    msg,
+                )
+                if code == 429 or status == "RESOURCE_EXHAUSTED" or "429" in str(exc).lower() or "quota" in str(exc).lower() or "resource_exhausted" in str(exc).lower():
+                    quota_cooldown_tracker.set_cooldown(300.0)
+                    raise AIServiceUnavailableError("AI daily quota reached. Please try again tomorrow.")
+                elif self._is_retryable_error(code, status, exc):
+                    if fallback_model:
+                        needs_fallback = True
+                    else:
+                        raise AIServiceUnavailableError("Google's AI is busy right now. Please try again in a few minutes.")
+                elif code == 400 or status == "INVALID_ARGUMENT":
+                    raise AIServiceUnavailableError(f"Invalid request to AI service: {msg}")
+                elif code in (401, 403) or status == "PERMISSION_DENIED":
+                    raise AIConfigError("Gemini API key is invalid or lacks permissions. Please check GEMINI_API_KEY_CHAT.")
+                elif code == 404 or status == "NOT_FOUND":
+                    raise AIConfigError(f"Gemini model is not available. Please verify GEMINI_MODEL in .env.")
+                else:
+                    raise AIServiceUnavailableError("The AI service is temporarily unavailable.") from exc
+
+        # --- Fallback Model: Exactly ONE Attempt ---
+        if needs_fallback and fallback_model:
+            logger.info("Attempting chat with fallback model '%s'...", fallback_model)
+            try:
+                return await _run_attempt(fallback_model)
+            except asyncio.TimeoutError:
+                logger.warning("Chat fallback model '%s' timed out after 20s", fallback_model)
+                raise AIServiceUnavailableError("The AI service timed out. Please try again later.")
+            except Exception as exc:
+                code, status, _ = _extract_google_error_info(exc)
+                logger.warning(
+                    "AI chat fallback model '%s' failed (code=%s, status=%s). Skipping fallback.",
+                    fallback_model,
+                    code,
+                    status,
+                )
+                if code == 429 or status == "RESOURCE_EXHAUSTED" or "429" in str(exc).lower() or "quota" in str(exc).lower() or "resource_exhausted" in str(exc).lower():
+                    quota_cooldown_tracker.set_cooldown(300.0)
+                    raise AIServiceUnavailableError("AI daily quota reached. Please try again tomorrow.")
+                # Requirement 4: On 404 (retired), setup error (400, 401, 403), 503, etc.:
+                # log one clear warning without keys, skip it, and return normal friendly message. Never crash.
+                raise AIServiceUnavailableError("Google's AI is busy right now. Please try again in a few minutes.")
+
+        raise AIServiceUnavailableError("The AI service is temporarily unavailable.")
+
     async def _generate_chat_gemini(
         self,
         messages: List[Dict[str, str]],
@@ -293,15 +421,14 @@ class AIProvider:
     ) -> str:
         gemini_contents = self.build_gemini_contents(messages)
 
-        def _call() -> str:
+        def _call_model(target_model: str) -> str:
             client = self._get_gemini_client()
-            model = self.model_name
             config = types.GenerateContentConfig()
             if system_instruction and system_instruction.strip():
                 config.system_instruction = system_instruction.strip()
 
             response = client.models.generate_content(
-                model=model,
+                model=target_model,
                 contents=gemini_contents,
                 config=config,
             )
@@ -309,7 +436,7 @@ class AIProvider:
                 raise AIServiceUnavailableError("Empty response received from AI model.")
             return response.text.strip()
 
-        return await self._execute_with_retry_and_timeout(_call)
+        return await self._execute_chat_with_fallback(_call_model)
 
     async def _generate_chat_ollama(
         self,

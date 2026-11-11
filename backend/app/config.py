@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY_CHAT: str | None = None
     GEMINI_API_KEY_TIMETABLE: str | None = None
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    GEMINI_FALLBACK_MODEL: str = os.getenv("GEMINI_FALLBACK_MODEL", "")
     GOOGLE_APPLICATION_CREDENTIALS: str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 
     # Google Custom Search API (fallback for JS-heavy college sites)
