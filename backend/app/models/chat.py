@@ -3,7 +3,7 @@ Chat conversation model — stores chat messages between student and AI.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, ForeignKey, Uuid, Integer, Boolean
+from sqlalchemy import String, Text, DateTime, ForeignKey, Uuid, Integer, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -30,6 +30,9 @@ class ChatConversation(Base):
 class ChatMessage(Base):
     """Individual message in a conversation."""
     __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index("ix_chat_messages_conv_created", "conversation_id", "created_at"),
+    )
 
     id:              Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     conversation_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False, index=True)

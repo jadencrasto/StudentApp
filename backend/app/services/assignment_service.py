@@ -9,12 +9,12 @@ from uuid import UUID
 from datetime import date
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func, case
 from app.models.assignment import Assignment, AssignmentStatus
 from app.models.document_alert import Document
 import logging
 from app.models.assignment import TaskType, Priority
-from app.schemas.schemas import AssignmentCreate, AssignmentUpdate
+from app.schemas.schemas import AssignmentCreate, AssignmentUpdate, AssignmentOut
 from app.services.time_estimator import estimate_assignment_time
 
 logger = logging.getLogger(__name__)
@@ -80,30 +80,111 @@ async def get_assignments(
     db: AsyncSession,
     status: str | None = None,
     subject: str | None = None,
-) -> list[Assignment]:
-    """Get all assignments for a user with optional status/subject filtering.
-    
-    Step 6 — Student filters
-    → Dropdown shows all course names automatically
-    → Student picks a course → frontend filters the list instantly
-    → Student clicks status tab → filters again instantly
+    start_date: date | None = None,
+    end_date: date | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[Assignment], int]:
+    """Get assignments for a user with optional status/subject/date filtering and pagination.
+    Returns (assignments, total_count).
     """
-    query = select(Assignment).where(Assignment.user_id == user_id)
+    base_where = [Assignment.user_id == user_id]
 
     if status:
         try:
             status_enum = AssignmentStatus(status)
-            query = query.where(Assignment.status == status_enum)
+            base_where.append(Assignment.status == status_enum)
         except ValueError:
             pass  # ignore invalid status values
 
     if subject:
-        query = query.where(Assignment.subject.ilike(f"%{subject}%"))
+        base_where.append(Assignment.subject.ilike(f"%{subject}%"))
 
-    # Most urgent first
-    query = query.order_by(Assignment.deadline.asc().nulls_last(), Assignment.created_at.desc())
+    if start_date:
+        base_where.append(Assignment.deadline >= start_date)
+
+    if end_date:
+        base_where.append(Assignment.deadline <= end_date)
+
+    # 1. Total count matching criteria
+    count_query = select(func.count(Assignment.id)).where(and_(*base_where))
+    total_res = await db.execute(count_query)
+    total_count = total_res.scalar() or 0
+
+    # 2. Fetch rows with deterministic stable tie-breaker: deadline ASC NULLS LAST, id ASC
+    query = (
+        select(Assignment)
+        .where(and_(*base_where))
+        .order_by(Assignment.deadline.asc().nulls_last(), Assignment.id.asc())
+    )
+
+    if offset > 0:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+
     result = await db.execute(query)
-    return list(result.scalars().all())
+    return list(result.scalars().all()), total_count
+
+
+def to_trimmed_assignment_out(a: Assignment) -> AssignmentOut:
+    """Trim heavy ai_metadata fields in list view to reduce payload size."""
+    meta = a.ai_metadata
+    if meta and isinstance(meta, dict):
+        trimmed_meta = {}
+        if "time_estimate" in meta and isinstance(meta["time_estimate"], dict):
+            te = meta["time_estimate"]
+            trimmed_meta["time_estimate"] = {
+                "estimated_hours": te.get("estimated_hours"),
+                "complexity": te.get("complexity"),
+            }
+        if "classroom" in meta and isinstance(meta["classroom"], dict):
+            cr = meta["classroom"]
+            trimmed_meta["classroom"] = {
+                "classroom_label": cr.get("classroom_label"),
+                "submission_status": cr.get("submission_status"),
+                "workflow_status": cr.get("workflow_status"),
+                "link": cr.get("link"),
+            }
+        meta = trimmed_meta or None
+
+    return AssignmentOut(
+        id=a.id,
+        user_id=a.user_id,
+        title=a.title,
+        subject=a.subject,
+        task_type=a.task_type.value if hasattr(a.task_type, "value") else str(a.task_type),
+        description=a.description,
+        deadline=a.deadline,
+        priority=a.priority.value if hasattr(a.priority, "value") else str(a.priority),
+        status=a.status.value if hasattr(a.status, "value") else str(a.status),
+        ai_metadata=meta,
+        source_document_id=a.source_document_id,
+        classroom_id=a.classroom_id,
+        created_at=a.created_at,
+        updated_at=a.updated_at,
+    )
+
+
+async def get_assignment_status_counts(user_id: UUID, db: AsyncSession) -> dict[str, int]:
+    """Get total, open (pending+in_progress+overdue), pending, and overdue counts in a single query."""
+    stmt = select(
+        func.count(Assignment.id).label("total"),
+        func.count(
+            case(
+                (Assignment.status.in_([AssignmentStatus.pending, AssignmentStatus.in_progress, AssignmentStatus.overdue]), 1)
+            )
+        ).label("open_count"),
+        func.count(case((Assignment.status == AssignmentStatus.pending, 1))).label("pending_count"),
+        func.count(case((Assignment.status == AssignmentStatus.overdue, 1))).label("overdue_count"),
+    ).where(Assignment.user_id == user_id)
+    row = (await db.execute(stmt)).one()
+    return {
+        "total": row.total or 0,
+        "open": row.open_count or 0,
+        "pending": row.pending_count or 0,
+        "overdue": row.overdue_count or 0,
+    }
 
 # =============================================================================
 # GET ASSIGNMENT BY ID

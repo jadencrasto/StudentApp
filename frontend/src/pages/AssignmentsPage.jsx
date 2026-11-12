@@ -100,6 +100,10 @@ export default function AssignmentsPage() {
   const [documents, setDocuments] = useState([])
   const [classroomEvents, setClassroomEvents] = useState([])
   const [filter, setFilter] = useState({ status: '', subject: '' })
+  const [totalCount, setTotalCount] = useState(0)
+  const [page, setPage] = useState(1)
+  const [calendarRange, setCalendarRange] = useState(null)
+  const PAGE_SIZE = 50
   const [showModal, setShowModal] = useState(false)
   const [view, setView] = useState('list') // 'list' or 'calendar'
   const [showDocs, setShowDocs] = useState(false)
@@ -114,14 +118,27 @@ export default function AssignmentsPage() {
   async function load() {
     setLoading(true)
     try {
+      const params = { ...filter }
+      if (view === 'calendar' && calendarRange) {
+        params.start_date = calendarRange.start_date
+        params.end_date = calendarRange.end_date
+      } else if (view === 'list') {
+        params.limit = PAGE_SIZE
+        params.offset = (page - 1) * PAGE_SIZE
+      }
+
       // 1. Load local assignments + documents immediately (fast)
       const [assignmentsResult, documentsResult] = await Promise.allSettled([
-        getAssignments(filter),
+        getAssignments(params),
         getDocuments(),
       ])
 
       if (assignmentsResult.status === 'fulfilled') {
-        setAssignments(assignmentsResult.value.data || [])
+        const resp = assignmentsResult.value
+        setAssignments(resp.data || [])
+        if (resp.headers?.['x-total-count']) {
+          setTotalCount(parseInt(resp.headers['x-total-count'], 10))
+        }
       }
       if (documentsResult.status === 'fulfilled') {
         setDocuments(documentsResult.value.data || [])
@@ -135,14 +152,25 @@ export default function AssignmentsPage() {
       .then(async (resp) => {
         setClassroomEvents(resp.data || [])
         try {
-          const refreshed = await getAssignments(filter)
+          const params = { ...filter }
+          if (view === 'calendar' && calendarRange) {
+            params.start_date = calendarRange.start_date
+            params.end_date = calendarRange.end_date
+          } else if (view === 'list') {
+            params.limit = PAGE_SIZE
+            params.offset = (page - 1) * PAGE_SIZE
+          }
+          const refreshed = await getAssignments(params)
           setAssignments(refreshed.data || [])
+          if (refreshed.headers?.['x-total-count']) {
+            setTotalCount(parseInt(refreshed.headers['x-total-count'], 10))
+          }
         } catch { /* non-blocking */ }
       })
       .catch(() => setClassroomEvents([]))
   }
 
-  useEffect(() => { load() }, [filter])
+  useEffect(() => { load() }, [filter, page, view, calendarRange])
 
   // Handle create new assignment
   async function handleCreate(form) {
@@ -250,7 +278,7 @@ export default function AssignmentsPage() {
       >
         <div>
           <h1 className="font-display text-3xl text-white">Assignments</h1>
-          <p className="text-slate-400 text-sm mt-1">{listItems.length} total</p>
+          <p className="text-slate-400 text-sm mt-1">{totalCount > 0 ? `${totalCount} total` : `${listItems.length} total`}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -473,11 +501,35 @@ export default function AssignmentsPage() {
               )}
             </div>
           )}
+
+          {/* Pagination controls */}
+          {totalCount > PAGE_SIZE && (
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-slate-400 hover:text-white disabled:opacity-30 transition-all"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-slate-500">
+                Page {page} of {Math.ceil(totalCount / PAGE_SIZE)}
+              </span>
+              <button
+                disabled={page >= Math.ceil(totalCount / PAGE_SIZE)}
+                onClick={() => setPage(p => p + 1)}
+                className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-slate-400 hover:text-white disabled:opacity-30 transition-all"
+              >
+                Next
+              </button>
+            </div>
+          )}
         </>
       ) : (
         <CalendarView
           assignments={calendarItems}
           onStatusChange={handleStatusChange}
+          onRangeChange={setCalendarRange}
           onClassroomClick={(assignment) => {
             if (assignment?.link) {
               window.open(assignment.link, '_blank', 'noopener,noreferrer')

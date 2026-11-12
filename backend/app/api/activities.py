@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.core.dependencies import get_current_user
@@ -26,11 +26,14 @@ async def create_activity(
 
 @router.get("", response_model=list[ActivityOut])
 async def list_activities(
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """List all activities (including recurring instances), ordered by date."""
-    return await activity_service.get_activities(current_user.id, db)
+    items = await activity_service.get_activities(current_user.id, db)
+    response.headers["X-Total-Count"] = str(len(items))
+    return items
 
 
 @router.put("/{activity_id}", response_model=ActivityOut)

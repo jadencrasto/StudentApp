@@ -137,6 +137,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    expose_headers=["X-Total-Count", "X-Open-Count", "X-Pending-Count", "X-Overdue-Count"],
 )
 
 # Versioned API Router

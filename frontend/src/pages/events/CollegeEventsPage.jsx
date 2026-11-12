@@ -226,6 +226,7 @@ export default function CollegeEventsPage() {
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState(null)
   const [showSetup, setShowSetup]     = useState(false)
+  const [showPast, setShowPast]       = useState(false)
 
   const [search, setSearch]           = useState('')
   const [typeFilter, setTypeFilter]   = useState('All')
@@ -266,11 +267,12 @@ export default function CollegeEventsPage() {
     }
   }, [isInstitutionStudent, institution])
 
-  async function fetchInstitutionEvents() {
+  async function fetchInstitutionEvents(includePast = false) {
     setLoading(true)
     setError(null)
     try {
-      const { data } = await client.get('/events')
+      const params = includePast ? { include_past: true } : {}
+      const { data } = await client.get('/events', { params })
       // Student view: strictly filter for dated events only
       const dated = (data || []).filter(e => e.date && e.date.trim())
       setEvents(dated)
@@ -281,6 +283,14 @@ export default function CollegeEventsPage() {
       toast.error('Failed to load events')
     } finally {
       setLoading(false)
+    }
+  }
+
+  function handleTogglePast() {
+    const next = !showPast
+    setShowPast(next)
+    if (isInstitutionStudent) {
+      fetchInstitutionEvents(next)
     }
   }
 
@@ -399,7 +409,7 @@ export default function CollegeEventsPage() {
         </div>
 
         <button
-          onClick={() => isInstitutionStudent ? fetchInstitutionEvents() : fetchEvents(config)}
+          onClick={() => isInstitutionStudent ? fetchInstitutionEvents(showPast) : fetchEvents(config)}
           disabled={loading}
           className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-bold rounded-xl text-sm transition-all"
         >
@@ -407,6 +417,19 @@ export default function CollegeEventsPage() {
           {loading ? 'Fetching…' : 'Fetch Latest Events'}
         </button>
       </motion.div>
+
+      {/* Show past events toggle — institution students only */}
+      {isInstitutionStudent && (
+        <div className="mb-2">
+          <button
+            onClick={handleTogglePast}
+            disabled={loading}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${showPast ? 'bg-emerald-500 text-black' : 'bg-white/5 text-gray-400 hover:text-gray-200 border border-white/10'}`}
+          >
+            {showPast ? 'Showing all events' : 'Show past events'}
+          </button>
+        </div>
+      )}
 
       {/* ── College info bar ─────────────────────────────────────────── */}
       <motion.div
@@ -535,17 +558,29 @@ export default function CollegeEventsPage() {
           {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : events.length === 0 && !loading ? (
-        // Empty: never fetched
+        // Empty state: no upcoming events
         <div className="flex flex-col items-center justify-center py-24 text-center bg-black/20 rounded-2xl border border-white/5">
-          <School size={52} className="text-slate-700 mb-4" />
-          <p className="text-slate-400 font-medium mb-1">No events yet</p>
-          <p className="text-slate-600 text-sm mb-4">Click <strong className="text-slate-400">Fetch Latest Events</strong> to scrape your college site.</p>
+          <CalendarDays size={52} className="text-slate-700 mb-4" />
+          <p className="text-slate-300 font-semibold text-base mb-1">No upcoming events right now</p>
+          <p className="text-slate-500 text-sm max-w-sm mb-5">
+            {isInstitutionStudent
+              ? 'Your college calendar has no upcoming events or notices scheduled at this moment. Check back soon!'
+              : 'Scrape your college website to pull in the latest academic calendar notices and schedules.'}
+          </p>
           <button
-            onClick={() => fetchEvents(config)}
-            className="px-4 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 text-sm rounded-xl transition-all"
+            onClick={() => isInstitutionStudent ? fetchInstitutionEvents(showPast) : fetchEvents(config)}
+            className="px-4 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 text-sm rounded-xl transition-all inline-flex items-center gap-2"
           >
-            Fetch Now
+            <RefreshCw size={14} /> {isInstitutionStudent ? 'Refresh Schedule' : 'Fetch Latest Events'}
           </button>
+          {isInstitutionStudent && !showPast && (
+            <button
+              onClick={handleTogglePast}
+              className="mt-3 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm rounded-xl transition-all inline-flex items-center gap-2"
+            >
+              Show Past Events
+            </button>
+          )}
         </div>
       ) : filtered.length === 0 ? (
         // Filtered empty

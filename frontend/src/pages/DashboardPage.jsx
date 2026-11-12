@@ -132,6 +132,10 @@ export default function DashboardPage() {
   const [academicEvents, setAcademicEvents] = useState([])
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [calendarAnchored, setCalendarAnchored] = useState(false)
+  const [totalAssignmentsCount, setTotalAssignmentsCount] = useState(null)
+  const [openAssignmentsCount, setOpenAssignmentsCount] = useState(null)
+  const [totalAlertsCount, setTotalAlertsCount] = useState(null)
+  const [totalActivitiesCount, setTotalActivitiesCount] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -159,10 +163,28 @@ export default function DashboardPage() {
 
     // Load critical data first (fast endpoints)
     Promise.allSettled([
-      getAssignments().then(r => setAssignments(r.data)),
+      getAssignments().then(r => {
+        setAssignments(r.data || [])
+        if (r.headers?.['x-total-count']) {
+          setTotalAssignmentsCount(parseInt(r.headers['x-total-count'], 10))
+        }
+        if (r.headers?.['x-open-count']) {
+          setOpenAssignmentsCount(parseInt(r.headers['x-open-count'], 10))
+        }
+      }),
       attendancePromise,
-      getActivities().then(r => setActivities(r.data)),
-      getAlerts(true).then(r => setAlerts(r.data)),
+      getActivities().then(r => {
+        setActivities(r.data || [])
+        if (r.headers?.['x-total-count']) {
+          setTotalActivitiesCount(parseInt(r.headers['x-total-count'], 10))
+        }
+      }),
+      getAlerts(true).then(r => {
+        setAlerts(r.data || [])
+        if (r.headers?.['x-total-count']) {
+          setTotalAlertsCount(parseInt(r.headers['x-total-count'], 10))
+        }
+      }),
     ]).finally(() => setLoading(false))
 
     // Load timetable schedule / reminders
@@ -193,7 +215,7 @@ export default function DashboardPage() {
 
     // Defer events loading (slowest endpoint — web scraping)
     const eventsTimer = setTimeout(() => {
-      client.get('/events').catch(() => ({ data: [] }))
+      client.get('/events', { params: { include_past: true } }).catch(() => ({ data: [] }))
         .then(r => setAcademicEvents(Array.isArray(r?.data) ? r.data : []))
     }, 100)
     return () => clearTimeout(eventsTimer)
@@ -429,10 +451,10 @@ export default function DashboardPage() {
 
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard index={0} title="Open Assignments" value={activeAssignments.length} sub="Including new drafts" accent="bg-emerald-500/10 text-emerald-400" icon={BookOpen} />
+        <StatCard index={0} title="Open Assignments" value={openAssignmentsCount !== null ? openAssignmentsCount : activeAssignments.length} sub="Including new drafts" accent="bg-emerald-500/10 text-emerald-400" icon={BookOpen} />
         <StatCard index={1} title="Avg Attendance" value={`${avgAttendance}%`} sub={lowAttendance > 0 ? `${lowAttendance} subject${lowAttendance > 1 ? 's' : ''} at risk` : 'All good'} accent="bg-emerald-400/10 text-emerald-400" icon={CalendarCheck} />
-        <StatCard index={2} title="Activities" value={activities.length} sub={conflictCount > 0 ? `${conflictCount} conflict${conflictCount > 1 ? 's' : ''}` : 'No conflicts'} accent="bg-blue-400/10 text-blue-400" icon={Trophy} />
-        <StatCard index={3} title="Alerts" value={alerts.length} sub="Unread" accent={alerts.length > 0 ? "bg-red-400/10 text-red-400" : "bg-white/5 text-gray-400"} icon={Bell} />
+        <StatCard index={2} title="Activities" value={totalActivitiesCount !== null ? totalActivitiesCount : activities.length} sub={conflictCount > 0 ? `${conflictCount} conflict${conflictCount > 1 ? 's' : ''}` : 'No conflicts'} accent="bg-blue-400/10 text-blue-400" icon={Trophy} />
+        <StatCard index={3} title="Alerts" value={totalAlertsCount !== null ? totalAlertsCount : alerts.length} sub="Unread" accent={(totalAlertsCount !== null ? totalAlertsCount : alerts.length) > 0 ? "bg-red-400/10 text-red-400" : "bg-white/5 text-gray-400"} icon={Bell} />
       </div>
 
       {/* Main grid */}

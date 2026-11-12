@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from typing import Dict, List
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, case
 from app.models.attendance import Subject, AttendanceRecord, AttendanceStatus
 from app.schemas.schemas import SubjectCreate, SubjectUpdate, AttendanceMarkRequest, AttendanceSummaryOut
 
@@ -150,46 +150,60 @@ async def get_attendance_summary(
     user_id: UUID, db: AsyncSession
 ) -> list[AttendanceSummaryOut]:
     """
-    Returns attendance stats per subject for the current user.
+    Returns attendance stats per subject for the current user in a single aggregated query.
     Calculates present%, flags if below 75%.
     """
-    subjects_result = await db.execute(
-        select(Subject).where(Subject.user_id == user_id)
-    )
-    subjects = subjects_result.scalars().all()
-
-    summaries = []
-    for subject in subjects:
-        records_result = await db.execute(
-            select(AttendanceRecord).where(
-                and_(
-                    AttendanceRecord.user_id == user_id,
-                    AttendanceRecord.subject_id == subject.id,
+    stmt = (
+        select(
+            Subject.id,
+            Subject.name,
+            Subject.code,
+            func.count(AttendanceRecord.id).label("total_classes"),
+            func.sum(
+                case(
+                    (AttendanceRecord.status.in_([AttendanceStatus.present.value, AttendanceStatus.late.value]), 1),
+                    else_=0,
                 )
-            )
+            ).label("present_count"),
+            func.sum(
+                case(
+                    (AttendanceRecord.status == AttendanceStatus.absent.value, 1),
+                    else_=0,
+                )
+            ).label("absent_count"),
+            func.sum(
+                case(
+                    (AttendanceRecord.status == AttendanceStatus.late.value, 1),
+                    else_=0,
+                )
+            ).label("late_count"),
         )
-        records = records_result.scalars().all()
+        .outerjoin(
+            AttendanceRecord,
+            and_(
+                AttendanceRecord.subject_id == Subject.id,
+                AttendanceRecord.user_id == user_id,
+            ),
+        )
+        .where(Subject.user_id == user_id)
+        .group_by(Subject.id, Subject.name, Subject.code)
+        .order_by(Subject.name)
+    )
 
-        total = len(records)
-        present_count = 0
-        absent_count = 0
-        late_count = 0
-
-        for r in records:
-            if r.status == AttendanceStatus.present.value:
-                present_count += 1
-            elif r.status == AttendanceStatus.late.value:
-                present_count += 1  # present for logic
-                late_count += 1
-            elif r.status == AttendanceStatus.absent.value:
-                absent_count += 1
+    records_res = await db.execute(stmt)
+    summaries = []
+    for r in records_res.fetchall():
+        total = int(r.total_classes or 0)
+        present_count = int(r.present_count or 0)
+        absent_count = int(r.absent_count or 0)
+        late_count = int(r.late_count or 0)
 
         pct = round((present_count / total) * 100, 2) if total > 0 else 0.0
 
         summaries.append(AttendanceSummaryOut(
-            subject_id=subject.id,
-            subject_name=subject.name,
-            subject_code=subject.code,
+            subject_id=r.id,
+            subject_name=r.name,
+            subject_code=r.code,
             total_classes=total,
             present_count=present_count,
             absent_count=absent_count,
@@ -240,8 +254,26 @@ async def generate_attendance_alerts(user_id: UUID, db: AsyncSession) -> List[Di
     """
     Generate smart alerts for all subjects with attendance issues.
     Returns list of alert objects sorted by severity.
+    Optimized to use only 2 queries: one aggregated summary query + one recent records query.
     """
     summaries = await get_attendance_summary(user_id, db)
+    if not summaries:
+        return []
+
+    # Batch fetch recent records for all subjects in a single query
+    rec_result = await db.execute(
+        select(AttendanceRecord)
+        .where(AttendanceRecord.user_id == user_id)
+        .order_by(AttendanceRecord.class_date.desc())
+    )
+    all_user_records = rec_result.scalars().all()
+    records_by_subject: Dict[UUID, List[AttendanceRecord]] = {}
+    for r in all_user_records:
+        if r.subject_id not in records_by_subject:
+            records_by_subject[r.subject_id] = []
+        if len(records_by_subject[r.subject_id]) < 5:
+            records_by_subject[r.subject_id].append(r)
+
     alerts = []
 
     for summary in summaries:
@@ -322,18 +354,7 @@ async def generate_attendance_alerts(user_id: UUID, db: AsyncSession) -> List[Di
             })
 
         # Alert 5: Consecutive Absences Pattern
-        records_result = await db.execute(
-            select(AttendanceRecord)
-            .where(
-                and_(
-                    AttendanceRecord.user_id == user_id,
-                    AttendanceRecord.subject_id == summary.subject_id
-                )
-            )
-            .order_by(AttendanceRecord.class_date.desc())
-            .limit(5)
-        )
-        recent_records = list(records_result.scalars().all())
+        recent_records = records_by_subject.get(summary.subject_id, [])
 
         consecutive_absences = 0
         for record in recent_records:

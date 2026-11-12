@@ -9,18 +9,33 @@ import { getAttendanceAlerts } from '../../api/attendance';
 import AlertBanner from './AlertBanner';
 import RecoveryPlanModal from './RecoveryPlanModal';
 
-export default function AlertsWidget() {
-    const [alerts, setAlerts] = useState([]);
-    const [loading, setLoading] = useState(true);
+export default function AlertsWidget({ initialAlerts = null }) {
+    const [alerts, setAlerts] = useState(initialAlerts || []);
+    const [loading, setLoading] = useState(initialAlerts === null);
     const [dismissed, setDismissed] = useState([]);
     const [recoverySubject, setRecoverySubject] = useState(null);
 
     useEffect(() => {
+        if (initialAlerts !== null) {
+            setAlerts(initialAlerts);
+            setLoading(false);
+            return;
+        }
+
+        let isMounted = true;
         getAttendanceAlerts()
-            .then(({ data }) => setAlerts(data))
+            .then(({ data }) => {
+                if (isMounted) setAlerts(data || []);
+            })
             .catch(() => { })
-            .finally(() => setLoading(false));
-    }, []);
+            .finally(() => {
+                if (isMounted) setLoading(false);
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [initialAlerts]);
 
     const visible = alerts.filter((a) => !dismissed.includes(a.id));
     const criticalCount = visible.filter((a) => a.severity === 'critical').length;

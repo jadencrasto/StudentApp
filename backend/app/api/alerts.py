@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.core.dependencies import get_current_user
@@ -12,12 +12,15 @@ router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 @router.get("", response_model=list[AlertOut])
 async def list_alerts(
+    response: Response,
     unread_only: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """List alerts. Pass ?unread_only=true to get only unread."""
-    return await alert_service.get_alerts(current_user.id, db, unread_only)
+    items = await alert_service.get_alerts(current_user.id, db, unread_only)
+    response.headers["X-Total-Count"] = str(len(items))
+    return items
 
 
 @router.post("/refresh")

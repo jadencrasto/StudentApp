@@ -21,6 +21,8 @@ from app.services.gemini_event_extractor import GeminiEventExtractor
 
 import re
 import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from uuid import UUID
 from pydantic import BaseModel, Field
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -315,18 +317,37 @@ async def list_colleges():
 @router.get("/events")
 async def get_events(
     college: str | None = Query(default=None, min_length=2),
+    include_past: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_user),
 ):
     try:
+        now_ist = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
+
+        # Base conditions: non-hidden, non-empty valid ISO date
+        base_conditions = [
+            CollegeEvent.is_hidden == False,
+            CollegeEvent.event_date.isnot(None),
+            CollegeEvent.event_date != "",
+        ]
+        if not include_past:
+            base_conditions.extend([
+                CollegeEvent.event_date.like("20%-__-__"),
+                CollegeEvent.event_date >= now_ist,
+            ])
+
+        order_clause = (
+            CollegeEvent.event_date.asc(), CollegeEvent.id.asc()
+        ) if not include_past else (
+            CollegeEvent.event_date.desc(), CollegeEvent.id.desc()
+        )
+
         # Case 1: Student belongs to an institution -> strictly scoped to institution
         if current_user and current_user.institution_id:
             stmt = select(CollegeEvent).where(
                 CollegeEvent.institution_id == current_user.institution_id,
-                CollegeEvent.is_hidden == False,
-                CollegeEvent.event_date.isnot(None),
-                CollegeEvent.event_date != "",
-            ).order_by(CollegeEvent.event_date.desc())
+                *base_conditions,
+            ).order_by(*order_clause)
             rows = (await db.execute(stmt)).scalars().all()
             return [
                 {
@@ -349,13 +370,11 @@ async def get_events(
         # Case 2: Independent student -> unscoped events (institution_id IS NULL)
         stmt = select(CollegeEvent).where(
             CollegeEvent.institution_id.is_(None),
-            CollegeEvent.is_hidden == False,
-            CollegeEvent.event_date.isnot(None),
-            CollegeEvent.event_date != "",
+            *base_conditions,
         )
         if college:
             stmt = stmt.where(CollegeEvent.college.ilike(f"%{college}%"))
-        stmt = stmt.order_by(CollegeEvent.event_date.desc())
+        stmt = stmt.order_by(*order_clause)
         rows = (await db.execute(stmt)).scalars().all()
         if rows:
             return [

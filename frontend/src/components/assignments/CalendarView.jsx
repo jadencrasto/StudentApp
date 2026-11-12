@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
 import AssignmentDayCell from './AssignmentDayCell';
 import AssignmentModal from './AssignmentModal';
 
-export default function CalendarView({ assignments, onAssignmentClick, onStatusChange, onDocumentClick, onClassroomClick }) {
+export default function CalendarView({ assignments, onAssignmentClick, onStatusChange, onDocumentClick, onClassroomClick, onRangeChange }) {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [selectedAssignment, setSelectedAssignment] = useState(null);
 
@@ -15,6 +15,15 @@ export default function CalendarView({ assignments, onAssignmentClick, onStatusC
     const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
 
     const calendarDays = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+
+    useEffect(() => {
+        if (onRangeChange) {
+            onRangeChange({
+                start_date: format(calendarStart, 'yyyy-MM-dd'),
+                end_date: format(calendarEnd, 'yyyy-MM-dd'),
+            });
+        }
+    }, [currentMonth]);
 
     // Group assignments by date
     const assignmentsByDate = assignments.reduce((acc, assignment) => {

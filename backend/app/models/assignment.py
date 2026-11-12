@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Text, Date, DateTime, ForeignKey, Enum, Uuid, JSON
+from sqlalchemy import String, Text, Date, DateTime, ForeignKey, Enum, Uuid, JSON, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 import enum
@@ -28,6 +28,9 @@ class AssignmentStatus(str, enum.Enum):
     overdue     = "overdue"
 class Assignment(Base):
     __tablename__ = "assignments"
+    __table_args__ = (
+        Index("ix_assignments_user_deadline", "user_id", "deadline", "id"),
+    )
 
     id:                  Mapped[uuid.UUID]      = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id:             Mapped[uuid.UUID]      = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)

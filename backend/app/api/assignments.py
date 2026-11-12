@@ -1,5 +1,6 @@
 from uuid import UUID
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
+from datetime import date
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.core.dependencies import get_current_user
@@ -35,13 +36,26 @@ async def create(
 
 @router.get("", response_model=list[AssignmentOut])
 async def list_assignments(
+    response: Response,
     status:  str | None = Query(default=None),
     subject: str | None = Query(default=None),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all assignments. Optional filters: status, subject."""
-    return await assignment_service.get_assignments(current_user.id, db, status, subject)
+    """List assignments. Optional filters: status, subject, start_date, end_date, limit, offset."""
+    items, total = await assignment_service.get_assignments(
+        current_user.id, db, status, subject, start_date, end_date, limit, offset
+    )
+    counts = await assignment_service.get_assignment_status_counts(current_user.id, db)
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Open-Count"] = str(counts["open"])
+    response.headers["X-Pending-Count"] = str(counts["pending"])
+    response.headers["X-Overdue-Count"] = str(counts["overdue"])
+    return [assignment_service.to_trimmed_assignment_out(x) for x in items]
 
 
 @router.get("/upcoming", response_model=list[AssignmentOut])
