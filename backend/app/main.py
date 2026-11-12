@@ -6,7 +6,7 @@ import os
 from contextlib import asynccontextmanager
 import logging
 from fastapi import FastAPI, APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -81,8 +81,9 @@ async def lifespan(app: FastAPI):
     # Seed demo user for development only if explicitly enabled
     if settings.SEED_DEMO_USER:
         await _seed_demo_user()
-    from app.scheduler import start_scheduler, stop_scheduler
+    from app.scheduler import start_scheduler, stop_scheduler, run_startup_catchup
     start_scheduler()
+    await run_startup_catchup()
     try:
         yield
     except asyncio.CancelledError:
@@ -215,6 +216,50 @@ async def health():
 logger = logging.getLogger(__name__)
 
 
+def get_frontend_dist_dir() -> str | None:
+    env_dir = os.getenv("FRONTEND_DIST_DIR")
+    candidates = [
+        env_dir,
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist")),
+        "/app/frontend/dist",
+        "./frontend/dist",
+    ]
+    for c in candidates:
+        if c and os.path.isdir(c):
+            return os.path.abspath(c)
+    return None
+
+
+# TODO(Phase 8E): Remove /health/ip after verifying Render proxy behaviour on first deploy.
+#   It is gated behind CSP_REPORT_ONLY=true so it auto-disables when you switch CSP to enforcing mode.
+@app.get("/health/ip")
+async def health_client_ip(request: Request):
+    """
+    Temporary diagnostic endpoint to inspect Render proxy IP forwarding after first deploy.
+    Auto-disabled when CSP_REPORT_ONLY is false (i.e., CSP enforcing mode).
+    Exposes NO secrets, credentials, or user data.
+    """
+    if not settings.CSP_REPORT_ONLY:
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+    from app.core.rate_limiter import get_real_client_ip, is_trusted_proxy_ip
+    client_host = request.client.host if request.client else "unknown"
+    xff = request.headers.get("x-forwarded-for")
+    is_trusted = is_trusted_proxy_ip(client_host)
+    resolved_ip = get_real_client_ip(request)
+    return {
+        "status": "ok",
+        "peer_ip": client_host,
+        "peer_is_trusted_proxy": is_trusted,
+        "x_forwarded_for": xff,
+        "resolved_client_ip": resolved_ip,
+        "trusted_proxies_configured": getattr(settings, "TRUSTED_PROXIES", ""),
+        "note": "Render peer-IP behaviour is unverified until live check on Render domain. "
+                "This endpoint auto-disables when CSP_REPORT_ONLY=false.",
+    }
+
+
 @app.get("/health/db")
 @limiter.limit("10/minute", key_func=lambda request: "global")
 async def health_db(request: Request, db: AsyncSession = Depends(get_db)):
@@ -232,3 +277,103 @@ async def health_db(request: Request, db: AsyncSession = Depends(get_db)):
             status_code=503,
             content={"status": "error", "database": "unavailable"},
         )
+
+
+@app.get("/{full_path:path}")
+async def serve_spa(request: Request, full_path: str):
+    """
+    Serves production React SPA with single-page application fallback.
+    Prevents path traversal, avoids route collisions with APIs, and sets caching headers.
+    """
+    # Detect path traversal attempts anywhere in raw, URL, or decoded paths
+    from urllib.parse import unquote
+    raw_path_bytes = request.scope.get("raw_path", b"")
+    raw_path_str = raw_path_bytes.decode("latin-1", errors="ignore") if isinstance(raw_path_bytes, bytes) else str(raw_path_bytes)
+    req_path = request.url.path
+
+    unquoted_raw = unquote(raw_path_str)
+    unquoted_full = unquote(full_path)
+    unquoted_req = unquote(req_path)
+
+    traversal_triggers = ("..", "%2e%2e", "%2E%2E")
+    if (
+        any(t in raw_path_str for t in traversal_triggers)
+        or any(t in req_path for t in traversal_triggers)
+        or any(t in full_path for t in traversal_triggers)
+        or ".." in unquoted_raw
+        or ".." in unquoted_full
+        or ".." in unquoted_req
+    ):
+        return JSONResponse(status_code=403, content={"detail": "Forbidden: Path traversal detected."})
+
+    normalized = full_path.strip("/")
+    # Never intercept backend API routes, OAuth, docs, or health checks
+    if (
+        normalized.startswith("api/")
+        or normalized == "api"
+        or normalized.startswith("auth/google")
+        or normalized == "extract"
+        or normalized.startswith("health")
+        or normalized.startswith("docs")
+        or normalized.startswith("redoc")
+        or normalized == "openapi.json"
+    ):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+    dist_dir = get_frontend_dist_dir()
+    if not dist_dir or not os.path.isfile(os.path.join(dist_dir, "index.html")):
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Frontend assets not found. Build frontend first (npm run build)."},
+        )
+
+    # Root path: serve index.html with no-cache headers
+    if not normalized:
+        return FileResponse(
+            os.path.join(dist_dir, "index.html"),
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
+    clean_rel_path = unquoted_full.strip("/\\")
+    target_path = os.path.abspath(os.path.join(dist_dir, clean_rel_path))
+
+    dist_dir_abs = os.path.abspath(dist_dir)
+    try:
+        common = os.path.commonpath([dist_dir_abs, target_path])
+    except ValueError:
+        return JSONResponse(status_code=403, content={"detail": "Forbidden: Path traversal detected."})
+
+    if common != dist_dir_abs:
+        return JSONResponse(status_code=403, content={"detail": "Forbidden: Path traversal detected."})
+
+    # If physical file exists in dist, serve it with appropriate cache headers
+    if os.path.isfile(target_path):
+        headers = {}
+        if clean_rel_path.startswith("assets/"):
+            headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif clean_rel_path == "index.html":
+            headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            headers["Pragma"] = "no-cache"
+            headers["Expires"] = "0"
+        else:
+            headers["Cache-Control"] = "public, max-age=3600"
+        return FileResponse(target_path, headers=headers)
+
+    # Do not serve index.html for static assets or file-like paths that are missing on disk
+    base_name = os.path.basename(clean_rel_path)
+    if clean_rel_path.startswith("assets/") or "." in base_name:
+        return JSONResponse(status_code=404, content={"detail": "File not found"})
+
+    # SPA Client Route Fallback: serve index.html for React Router
+    return FileResponse(
+        os.path.join(dist_dir, "index.html"),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )

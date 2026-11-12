@@ -36,6 +36,7 @@ apscheduler>=3.10.4
 # Utilities
 python-dotenv>=1.0.1
 python-dateutil>=2.9.0
+tzdata>=2024.1                 # timezone data for ZoneInfo (Asia/Kolkata)
 httpx>=0.27.0              # async HTTP client
 anyio==4.16.0                  # async concurrency utilities
 urllib3==2.8.0                 # HTTP connection utilities & retries

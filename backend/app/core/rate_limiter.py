@@ -15,13 +15,10 @@ from app.config import settings
 logger = logging.getLogger("sais.rate_limiter")
 
 
-def get_real_client_ip(request: Request) -> str:
-    """
-    Safely extract real client IP address behind reverse proxies (e.g. Cloudflare, Nginx).
-    Only trusts X-Forwarded-For if the immediate peer (request.client.host) is in TRUSTED_PROXIES.
-    """
-    client_host = request.client.host if request.client else "127.0.0.1"
-
+def is_trusted_proxy_ip(ip_str: str) -> bool:
+    """Check whether a given IP address belongs to TRUSTED_PROXIES."""
+    if not ip_str:
+        return False
     trusted_raw = getattr(settings, "TRUSTED_PROXIES", "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16")
     trusted_networks = []
     for item in trusted_raw.split(","):
@@ -35,15 +32,21 @@ def get_real_client_ip(request: Request) -> str:
                 trusted_networks.append(ipaddress.ip_network(f"{item}/32", strict=False))
             except ValueError:
                 pass
+    try:
+        ip_obj = ipaddress.ip_address(ip_str)
+        return any(ip_obj in net for net in trusted_networks)
+    except ValueError:
+        return False
 
-    def _is_trusted(ip_str: str) -> bool:
-        try:
-            ip_obj = ipaddress.ip_address(ip_str)
-            return any(ip_obj in net for net in trusted_networks)
-        except ValueError:
-            return False
 
-    if not _is_trusted(client_host):
+def get_real_client_ip(request: Request) -> str:
+    """
+    Safely extract real client IP address behind reverse proxies (e.g. Cloudflare, Nginx).
+    Only trusts X-Forwarded-For if the immediate peer (request.client.host) is in TRUSTED_PROXIES.
+    """
+    client_host = request.client.host if request.client else "127.0.0.1"
+
+    if not is_trusted_proxy_ip(client_host):
         return client_host
 
     # Peer is a trusted proxy: parse X-Forwarded-For from right to left
@@ -53,7 +56,7 @@ def get_real_client_ip(request: Request) -> str:
 
     ips = [ip.strip() for ip in xff.split(",") if ip.strip()]
     for candidate in reversed(ips):
-        if not _is_trusted(candidate):
+        if not is_trusted_proxy_ip(candidate):
             return candidate
 
     return client_host

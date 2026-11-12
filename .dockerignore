@@ -1,0 +1,77 @@
+# ==============================================================================
+# .dockerignore — Prevent local files, secrets, and caches from entering image
+# ==============================================================================
+
+# Environment files & Secrets
+.env*
+*.env
+backend/.env*
+frontend/.env*
+
+# Student / admin credentials & sheets
+student_credentials.xlsx
+*.xlsx
+*.csv
+
+# Uploads & local storage
+uploads/
+**/uploads/
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Backups & trash
+_trash/
+**/_trash/
+backups/
+**/backups/
+*.dump
+*.sql.bak
+*.bak
+*.backup*
+*.sqlite*
+*.db*
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Node dependencies & local builds
+node_modules/
+**/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Git metadata
+.git/
+.gitignore
+
+# Python caches & build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Diagnostic & test scratch files
+diagnostic_*
+debug_*
+test_result*.txt
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+

@@ -39,15 +39,15 @@ jobs:
           PGDATABASE_URL: ${{ secrets.SUPABASE_KEEPALIVE_DSN }}
         run: |
           if [ -z "$PGDATABASE_URL" ]; then
-            echo "Notice: SUPABASE_KEEPALIVE_DSN secret is not set. Skipping keep-alive ping."
-            exit 0
+            echo "::error::SUPABASE_KEEPALIVE_DSN secret is not set. Add it in Settings > Secrets > Actions."
+            exit 1
           fi
           # Install lightweight postgresql client
           sudo apt-get -qq update && sudo apt-get -qq install -y postgresql-client > /dev/null 2>&1
           # Run harmless SELECT 1 — output redirected to /dev/null so no connection details are logged
           if psql "$PGDATABASE_URL" -c "SELECT 1;" > /dev/null 2>&1; then
-            echo "Keep-alive ping succeeded at $(date -u)"
+            echo "Keep-alive: connected successfully at $(date -u)"
           else
-            echo "Warning: Database ping failed. Check credentials or connection pooler status."
+            echo "::error::Keep-alive: database ping FAILED. Check credentials or pooler status."
             exit 1
           fi

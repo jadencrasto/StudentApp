@@ -1,0 +1,33 @@
+name: Render Web Service Keep-Alive Ping
+
+on:
+  schedule:
+    # Runs every 5 minutes to prevent Render free container from sleeping
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions UI
+
+jobs:
+  ping:
+    name: Ping Render /health Endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping Service
+        run: |
+          URL="${{ secrets.RENDER_SERVICE_URL }}"
+          if [ -z "$URL" ]; then
+            echo "RENDER_SERVICE_URL not configured yet, skipping."
+            exit 0
+          fi
+          # Strip trailing slash if present
+          URL="${URL%/}"
+          echo "Pinging service /health endpoint..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${URL}/health" || echo "000")
+          echo "Received HTTP status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "Service is healthy, responsive, and awake."
+          else
+            echo "::error::Render ping FAILED with HTTP $HTTP_STATUS. Check service status on Render dashboard."
+            exit 1
+          fi
+

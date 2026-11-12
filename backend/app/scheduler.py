@@ -6,10 +6,12 @@ Runs daily at 8AM to:
 """
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from zoneinfo import ZoneInfo
 import logging
 
 logger = logging.getLogger("sais.scheduler")
-scheduler = AsyncIOScheduler()
+KOLKATA_TZ = ZoneInfo("Asia/Kolkata")
+scheduler = AsyncIOScheduler(timezone=KOLKATA_TZ)
 
 
 async def _daily_alert_job():
@@ -218,43 +220,74 @@ async def _prune_rate_limit_events_job():
 
 
 def start_scheduler():
-    # Run alert generation every day at 8:00 AM
+    # Run alert generation every day at 8:00 AM (Asia/Kolkata)
     scheduler.add_job(
         _daily_alert_job,
-        trigger=CronTrigger(hour=8, minute=0),
+        trigger=CronTrigger(hour=8, minute=0, timezone=KOLKATA_TZ),
         id="daily_alerts",
         replace_existing=True,
     )
-    # Mark overdue assignments every day at midnight
+    # Mark overdue assignments every day at midnight (Asia/Kolkata)
     scheduler.add_job(
         _mark_overdue_job,
-        trigger=CronTrigger(hour=0, minute=0),
+        trigger=CronTrigger(hour=0, minute=0, timezone=KOLKATA_TZ),
         id="mark_overdue",
         replace_existing=True,
     )
-    # Crawl configured college sites once a day at 2:00 AM (changed from hourly)
+    # Crawl configured college sites once a day at 2:00 AM (Asia/Kolkata)
     scheduler.add_job(
         _college_events_sync_job,
-        trigger=CronTrigger(hour=2, minute=0),
+        trigger=CronTrigger(hour=2, minute=0, timezone=KOLKATA_TZ),
         id="college_events_sync",
         replace_existing=True,
     )
-    # Storage audit & cleanup once a day at 3:00 AM (dry-run by default)
+    # Storage audit & cleanup once a day at 3:00 AM (Asia/Kolkata)
     scheduler.add_job(
         _storage_cleanup_job,
-        trigger=CronTrigger(hour=3, minute=0),
+        trigger=CronTrigger(hour=3, minute=0, timezone=KOLKATA_TZ),
         id="storage_cleanup",
         replace_existing=True,
     )
-    # Prune expired rate limit events once a day at 4:00 AM
+    # Prune expired rate limit events once a day at 4:00 AM (Asia/Kolkata)
     scheduler.add_job(
         _prune_rate_limit_events_job,
-        trigger=CronTrigger(hour=4, minute=0),
+        trigger=CronTrigger(hour=4, minute=0, timezone=KOLKATA_TZ),
         id="prune_rate_limit_events",
         replace_existing=True,
     )
     scheduler.start()
-    logger.info("Scheduler started: daily_alerts at 8AM, mark_overdue at midnight, college_events_sync at 2AM, storage_cleanup at 3AM")
+    logger.info(
+        "Scheduler started (Asia/Kolkata): daily_alerts at 8AM, mark_overdue at midnight, "
+        "college_events_sync at 2AM, storage_cleanup at 3AM, prune_rate_limits at 4AM"
+    )
+
+
+async def run_startup_catchup() -> dict[str, str]:
+    """
+    Idempotent catch-up on server boot or wake-up from sleep.
+    Runs ONLY safe, idempotent tasks:
+      1. _mark_overdue_job: sets status='overdue' where deadline < today and status='pending'
+      2. _prune_rate_limit_events_job: purges rate limit audit records older than 24 hours
+    Strictly DOES NOT scrape college portals or generate duplicate student alerts.
+    """
+    logger.info("[scheduler] Running idempotent startup catch-up...")
+    results = {}
+    try:
+        await _mark_overdue_job()
+        results["mark_overdue"] = "success"
+    except Exception as exc:
+        logger.warning("[scheduler] Startup catch-up mark_overdue failed: %s", exc)
+        results["mark_overdue"] = f"error: {exc}"
+
+    try:
+        await _prune_rate_limit_events_job()
+        results["prune_rate_limits"] = "success"
+    except Exception as exc:
+        logger.warning("[scheduler] Startup catch-up prune_rate_limits failed: %s", exc)
+        results["prune_rate_limits"] = f"error: {exc}"
+
+    logger.info("[scheduler] Startup catch-up complete: %s", results)
+    return results
 
 
 def stop_scheduler():

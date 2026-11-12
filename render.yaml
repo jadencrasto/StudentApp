@@ -1,0 +1,92 @@
+# render.yaml — Render Blueprint for SAIS single-container deployment.
+# All environment variable VALUES must be set privately in the Render dashboard.
+# This file contains ONLY the variable names (matching backend/app/config.py fields exactly).
+# No secrets, no real values.
+
+services:
+  - type: web
+    name: sais-web
+    env: docker
+    dockerfilePath: Dockerfile
+    region: singapore
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # ── App & Environment ──
+      - key: APP_NAME
+        sync: false
+      - key: ENVIRONMENT
+        sync: false
+      - key: DEBUG
+        sync: false
+      - key: SEED_DEMO_USER
+        sync: false
+
+      # ── Security & Cookies ──
+      - key: SECRET_KEY
+        sync: false
+      - key: COOKIE_SECURE
+        sync: false
+      - key: COOKIE_SAMESITE
+        sync: false
+      - key: CSP_REPORT_ONLY
+        sync: false
+      - key: TRUSTED_PROXIES
+        sync: false
+
+      # ── Database ──
+      - key: DATABASE_URL
+        sync: false
+
+      # ── Storage ──
+      - key: STORAGE_BACKEND
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        sync: false
+      - key: STORAGE_CLEANUP_DRY_RUN
+        sync: false
+      - key: UPLOAD_DIR
+        sync: false
+
+      # ── CORS ──
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      # ── AI / Gemini ──
+      - key: AI_PROVIDER
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY_CHAT
+        sync: false
+      - key: GEMINI_API_KEY_TIMETABLE
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: GEMINI_FALLBACK_MODEL
+        sync: false
+
+      # ── Google OAuth / Classroom ──
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+
+      # ── Google Custom Search (optional) ──
+      - key: GOOGLE_SEARCH_API_KEY
+        sync: false
+      - key: GOOGLE_SEARCH_CX
+        sync: false
+
+      # ── OCR ──
+      - key: TESSERACT_CMD
+        sync: false
