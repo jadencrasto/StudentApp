@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { getMe } from '../api/auth';
+import { getMe, logout as authLogout } from '../api/auth';
 
 const AuthContext = createContext(null);
 
@@ -7,19 +7,17 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchUser = useCallback(async (quiet = false) => {
-    const token = localStorage.getItem('sais_token');
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+  // Clear legacy localStorage token on first load (Phase 8D: Pure cookie auth)
+  useEffect(() => {
+    localStorage.removeItem('sais_token');
+  }, []);
 
+  const fetchUser = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
       const { data } = await getMe();
       setUser(data);
     } catch (error) {
-      localStorage.removeItem('sais_token');
       setUser(null);
     } finally {
       if (!quiet) setLoading(false);
@@ -33,7 +31,7 @@ export function AuthProvider({ children }) {
   // ── Auto-refresh on window focus & tab visibility change ────────────────
   useEffect(() => {
     function handleVisibilityOrFocus() {
-      if (document.visibilityState === 'visible' && localStorage.getItem('sais_token')) {
+      if (document.visibilityState === 'visible') {
         fetchUser(true);
       }
     }
@@ -52,7 +50,7 @@ export function AuthProvider({ children }) {
 
     const intervalId = setInterval(() => {
       // Pause poll when tab is hidden in background
-      if (!document.hidden && localStorage.getItem('sais_token')) {
+      if (!document.hidden) {
         fetchUser(true);
       }
     }, 45000);
@@ -60,13 +58,19 @@ export function AuthProvider({ children }) {
     return () => clearInterval(intervalId);
   }, [user?.join_request_status, fetchUser]);
 
-  const setToken = useCallback((token) => {
-    localStorage.setItem('sais_token', token);
+  const setToken = useCallback((_ignoredToken) => {
+    // Cookie is set directly by backend HTTP response; re-fetch user profile
     fetchUser();
   }, [fetchUser]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await authLogout();
+    } catch {
+      // ignore
+    }
     localStorage.removeItem('sais_token');
+    localStorage.removeItem('sais_user');
     setUser(null);
     window.location.href = '/login';
   }, []);

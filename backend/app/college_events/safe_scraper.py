@@ -7,6 +7,7 @@ import time
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 import requests
+from requests.adapters import HTTPAdapter
 
 from app.config import settings
 from app.core.rate_limiter import quota_cooldown_tracker
@@ -19,6 +20,39 @@ logger = logging.getLogger(__name__)
 class Scraper503Error(Exception):
     """Raised when upstream web server or AI service returns 503 Service Unavailable."""
     pass
+
+
+class PinnedIPAdapter(HTTPAdapter):
+    """
+    HTTPAdapter that connects the underlying TCP socket to a pre-resolved,
+    pre-validated pinned IP address to eliminate DNS rebinding / TOCTOU windows,
+    while enforcing standard TLS certificate verification and SNI against
+    the real hostname.
+    """
+    def __init__(self, pinned_ip: str, real_host: str, *args, **kwargs):
+        self.pinned_ip = pinned_ip
+        self.real_host = real_host
+        super().__init__(*args, **kwargs)
+
+    def build_connection_pool_key_attributes(self, request, verify, cert=None):
+        host_params, pool_kwargs = super().build_connection_pool_key_attributes(request, verify, cert)
+        host_params["host"] = self.pinned_ip
+        pool_kwargs["assert_hostname"] = self.real_host
+        pool_kwargs["server_hostname"] = self.real_host
+        return host_params, pool_kwargs
+
+    def get_connection(self, url, proxies=None):
+        parsed = urlparse(url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        return self.poolmanager.connection_from_host(
+            self.pinned_ip,
+            port=port,
+            scheme=parsed.scheme,
+            pool_kwargs={
+                "assert_hostname": self.real_host,
+                "server_hostname": self.real_host,
+            },
+        )
 
 
 CLOUD_METADATA_IPS = {
@@ -34,13 +68,32 @@ BLOCKED_HOSTNAMES = {
 }
 
 def is_safe_ip(ip_str: str) -> tuple[bool, str]:
-    """Validates that an IP address is public and safe (blocks private, loopback, link-local, metadata)."""
+    """
+    Validates that an IP address is public and safe.
+    Blocks private, loopback, link-local, reserved, multicast, cloud metadata,
+    and IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1).
+    """
     if ip_str in CLOUD_METADATA_IPS:
         return False, f"Cloud metadata IP address {ip_str} is strictly blocked"
     try:
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
         return False, f"Invalid IP address: {ip_str}"
+
+    # Handle IPv4-mapped IPv6 addresses
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ipv4 = ip.ipv4_mapped
+        if str(ipv4) in CLOUD_METADATA_IPS:
+            return False, f"Cloud metadata IP address {ip_str} ({ipv4}) is strictly blocked"
+        if (
+            ipv4.is_private
+            or ipv4.is_loopback
+            or ipv4.is_link_local
+            or ipv4.is_reserved
+            or ipv4.is_multicast
+            or ipv4.is_unspecified
+        ):
+            return False, f"Mapped private or local IP address {ip_str} ({ipv4}) is forbidden"
 
     if (
         ip.is_private
@@ -55,56 +108,92 @@ def is_safe_ip(ip_str: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_safe_url(url: str, allowed_domain: str | None = None) -> tuple[bool, str]:
+def resolve_and_validate_hostname(hostname: str) -> tuple[bool, str, str | None]:
     """
-    Validates scheme, domain consistency, and DNS-resolved IP address.
-    Re-run on every redirect hop to prevent SSRF vulnerabilities.
+    Resolves a hostname and validates ALL returned IP addresses.
+    Returns (is_safe, reason, pinned_ip).
+    Fails closed if ANY resolved address is unsafe.
+    """
+    try:
+        ipaddress.ip_address(hostname)
+        is_safe, reason = is_safe_ip(hostname)
+        if not is_safe:
+            return False, reason, None
+        return True, "", hostname
+    except ValueError:
+        pass
+
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        return False, f"Could not resolve hostname '{hostname}': {e}", None
+
+    if not addr_infos:
+        return False, f"No IP addresses resolved for '{hostname}'", None
+
+    resolved_ips: list[str] = []
+    for addr_info in addr_infos:
+        ip_str = addr_info[4][0]
+        if ip_str not in resolved_ips:
+            resolved_ips.append(ip_str)
+
+    # Validate ALL resolved IPs
+    for ip_str in resolved_ips:
+        is_safe, reason = is_safe_ip(ip_str)
+        if not is_safe:
+            return False, f"Hostname '{hostname}' resolved to forbidden IP '{ip_str}': {reason}", None
+
+    # Pick first resolved IP (preferring IPv4)
+    pinned = resolved_ips[0]
+    for ip_str in resolved_ips:
+        if ":" not in ip_str:
+            pinned = ip_str
+            break
+
+    return True, "", pinned
+
+
+def validate_safe_url_with_ip(url: str, allowed_domain: str | None = None) -> tuple[bool, str, str | None]:
+    """
+    Validates scheme, domain consistency, and checks ALL DNS-resolved IPs.
+    Returns (is_safe, reason, pinned_ip).
     """
     try:
         parsed = urlparse(url)
     except Exception as exc:
-        return False, f"Invalid URL format: {exc}"
+        return False, f"Invalid URL format: {exc}", None
 
     if parsed.scheme.lower() not in ("http", "https"):
-        return False, f"Unsupported scheme '{parsed.scheme}'. Only http and https are allowed."
+        return False, f"Unsupported scheme '{parsed.scheme}'. Only http and https are allowed.", None
 
     hostname = parsed.hostname
     if not hostname:
-        return False, "Missing hostname in URL"
+        return False, "Missing hostname in URL", None
 
     if hostname.lower() in BLOCKED_HOSTNAMES:
-        return False, f"Blocked hostname: {hostname}"
+        return False, f"Blocked hostname: {hostname}", None
 
     # Same-domain restriction
     if allowed_domain:
         allowed_parsed = urlparse(allowed_domain)
         target_domain = allowed_parsed.hostname or allowed_domain
         if hostname.lower() != target_domain.lower() and not hostname.lower().endswith("." + target_domain.lower()):
-            return False, f"Cross-domain request forbidden: '{hostname}' does not match '{target_domain}'"
+            return False, f"Cross-domain request forbidden: '{hostname}' does not match '{target_domain}'", None
 
-    # Check if hostname itself is an IP literal
-    try:
-        ipaddress.ip_address(hostname)
-        is_safe, reason = is_safe_ip(hostname)
-        if not is_safe:
-            return False, reason
-    except ValueError:
-        # Resolve hostname via DNS
-        try:
-            addr_infos = socket.getaddrinfo(hostname, None)
-        except socket.gaierror as e:
-            return False, f"Could not resolve hostname '{hostname}': {e}"
+    is_safe, reason, pinned_ip = resolve_and_validate_hostname(hostname)
+    if not is_safe:
+        return False, reason, None
 
-        if not addr_infos:
-            return False, f"No IP addresses resolved for '{hostname}'"
+    return True, "", pinned_ip
 
-        for addr_info in addr_infos:
-            ip_str = addr_info[4][0]
-            is_safe, reason = is_safe_ip(ip_str)
-            if not is_safe:
-                return False, reason
 
-    return True, ""
+def validate_safe_url(url: str, allowed_domain: str | None = None) -> tuple[bool, str]:
+    """
+    Validates scheme, domain consistency, and DNS-resolved IP address.
+    Re-run on every redirect hop to prevent SSRF vulnerabilities.
+    """
+    is_safe, reason, _ = validate_safe_url_with_ip(url, allowed_domain=allowed_domain)
+    return is_safe, reason
 
 
 def safe_fetch_page(
@@ -116,6 +205,7 @@ def safe_fetch_page(
 ) -> str | None:
     """
     Fetches URL content safely, checking every redirect hop against SSRF rules.
+    Pins socket connections to verified IPs to prevent DNS rebinding.
     Enforces maximum bytes (default 2MB) and timeout.
     """
     current_url = url
@@ -125,10 +215,18 @@ def safe_fetch_page(
     })
 
     for hop in range(max_redirects + 1):
-        is_safe, reason = validate_safe_url(current_url, allowed_domain=allowed_domain)
+        is_safe, reason, pinned_ip = validate_safe_url_with_ip(current_url, allowed_domain=allowed_domain)
         if not is_safe:
             logger.warning("SSRF check rejected URL at hop %d: %s (%s)", hop, current_url, reason)
             raise ValueError(f"Blocked by safety policy: {reason}")
+
+        parsed = urlparse(current_url)
+        hostname = parsed.hostname or ""
+
+        # Pin IP on session adapter for this host & scheme
+        if pinned_ip:
+            adapter = PinnedIPAdapter(pinned_ip=pinned_ip, real_host=hostname)
+            session.mount(f"{parsed.scheme}://{hostname}", adapter)
 
         try:
             resp = session.get(

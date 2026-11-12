@@ -200,6 +200,23 @@ async def _storage_cleanup_job():
         logger.info("[storage-cleanup] Live cleanup complete. Local files moved to %s", trash_dir)
 
 
+async def _prune_rate_limit_events_job():
+    """Daily job to delete rate_limit_events rows older than 24 hours."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import delete
+    from app.database import AsyncSessionLocal
+    from app.models.rate_limit import RateLimitEvent
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = delete(RateLimitEvent).where(RateLimitEvent.timestamp < cutoff)
+            res = await session.execute(stmt)
+            await session.commit()
+            logger.info("[scheduler] Pruned %d expired rate limit events (>24h).", res.rowcount)
+    except Exception as exc:
+        logger.warning("[scheduler] Pruning rate limit events failed: %s", exc)
+
+
 def start_scheduler():
     # Run alert generation every day at 8:00 AM
     scheduler.add_job(
@@ -227,6 +244,13 @@ def start_scheduler():
         _storage_cleanup_job,
         trigger=CronTrigger(hour=3, minute=0),
         id="storage_cleanup",
+        replace_existing=True,
+    )
+    # Prune expired rate limit events once a day at 4:00 AM
+    scheduler.add_job(
+        _prune_rate_limit_events_job,
+        trigger=CronTrigger(hour=4, minute=0),
+        id="prune_rate_limit_events",
         replace_existing=True,
     )
     scheduler.start()

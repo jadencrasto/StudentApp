@@ -116,11 +116,45 @@ def _reset_rate_limiters():
         pass
 
 
+def login_client(client: AsyncClient, token: str) -> None:
+    """Shared helper to log in a test client by setting the access_token httpOnly cookie."""
+    client.cookies.set("access_token", token)
+
+
+async def _bridge_auth_to_cookie(request):
+    """
+    httpx event hook (runs at the httpx layer before transport conversion).
+    Bridges legacy test ``Authorization: Bearer <token>`` headers into an
+    ``access_token`` cookie so the application's pure-cookie auth works
+    unchanged for all existing tests.
+
+    Tests that want to verify Bearer-alone-is-rejected can pass the header
+    ``X-No-Cookie-Bridge: 1`` to skip bridging for that request.
+    """
+    if request.headers.get("x-no-cookie-bridge"):
+        del request.headers["x-no-cookie-bridge"]
+        return
+
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:].strip()
+        cookie_val = request.headers.get("cookie", "")
+        parts = [p.strip() for p in cookie_val.split(";") if p.strip() and not p.strip().startswith("access_token=")]
+        parts.append(f"access_token={token}")
+        request.headers["cookie"] = "; ".join(parts)
+
+
 @pytest_asyncio.fixture()
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """
     Yield an httpx AsyncClient wired to the FastAPI app.
     The app's `get_db` dependency is overridden to use our test session.
+
+    Backwards-compatible with all existing tests:
+      • Default ``X-Requested-With: XMLHttpRequest`` header satisfies the
+        CSRF middleware for every request.
+      • An event hook transparently copies any ``Authorization: Bearer``
+        value into an ``access_token`` cookie so pure-cookie auth works.
     """
     from app.database import get_db
     from app.main import app
@@ -131,7 +165,12 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_db] = _override_get_db
 
     transport = ASGITransport(app=app, raise_app_exceptions=False)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"X-Requested-With": "XMLHttpRequest"},
+        event_hooks={"request": [_bridge_auth_to_cookie]},
+    ) as ac:
         yield ac
 
     app.dependency_overrides.clear()
@@ -158,16 +197,18 @@ async def registered_user(client: AsyncClient) -> dict:
 
 @pytest_asyncio.fixture()
 async def auth_token(client: AsyncClient, registered_user: dict) -> str:
-    """Log in the registered_user and return a Bearer token string."""
+    """Log in the registered_user, store cookie in client, and return token."""
     resp = await client.post("/api/v1/auth/login", json={
         "email": registered_user["email"],
         "password": registered_user["_password"],
     })
     assert resp.status_code == 200, resp.text
-    return resp.json()["access_token"]
+    token = resp.json()["access_token"]
+    login_client(client, token)
+    return token
 
 
 @pytest_asyncio.fixture()
 async def auth_headers(auth_token: str) -> dict:
-    """Convenience: returns headers dict with Bearer token."""
+    """Convenience: returns headers dict with Bearer token (bridged to cookie via event hook)."""
     return {"Authorization": f"Bearer {auth_token}"}

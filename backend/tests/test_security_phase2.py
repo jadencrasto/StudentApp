@@ -37,6 +37,7 @@ class TestPasswordStrength:
 class TestExtractEndpointSecurity:
     @pytest.mark.asyncio
     async def test_extract_without_token_returns_401(self, client: AsyncClient):
+        client.cookies.clear()
         files = {"file": ("test.txt", io.BytesIO(b"sample assignment text"), "text/plain")}
         resp = await client.post("/extract", files=files)
         assert resp.status_code == 401, f"Expected 401 without auth, got {resp.status_code}"
@@ -116,6 +117,7 @@ class TestSecurityHeaders:
 
 
 # ── 6. Secret Key Startup Validation ──────────────────────────────────
+# Always-on check in all environments: rejected if under 32 chars or known placeholder.
 
 class TestSecretKeyValidation:
     def test_short_secret_key_rejected(self):
@@ -126,10 +128,18 @@ class TestSecretKeyValidation:
             )
         assert "at least 32 characters" in str(exc_info.value)
 
-    def test_placeholder_secret_key_rejected(self):
+    def test_old_placeholder_secret_key_rejected(self):
         with pytest.raises(Exception) as exc_info:
             Settings(
                 SECRET_KEY="change-me-in-production-super-secret-key-32chars",
+                DATABASE_URL="sqlite+aiosqlite://",
+            )
+        assert "placeholder" in str(exc_info.value)
+
+    def test_current_env_example_placeholder_secret_key_rejected(self):
+        with pytest.raises(Exception) as exc_info:
+            Settings(
+                SECRET_KEY="your-super-secret-key-change-this-in-production-min-32-chars",
                 DATABASE_URL="sqlite+aiosqlite://",
             )
         assert "placeholder" in str(exc_info.value)

@@ -4,7 +4,7 @@ import { GraduationCap, Mail, Lock, User, UserCircle, ArrowRight, ArrowLeft } fr
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../hooks/useAuth';
-import { register, login } from '../api/auth';
+import { register } from '../api/auth';
 import { FallingPattern } from '../components/ui/falling-pattern';
 
 export default function RegisterPage() {
@@ -51,7 +51,7 @@ export default function RegisterPage() {
       const normalizedEmail = email.trim().toLowerCase();
       const normalizedUsername = username.trim();
 
-      // 1. Register
+      // 1. Register (issues access_token httpOnly cookie)
       await register({
         email: normalizedEmail,
         username: normalizedUsername,
@@ -59,9 +59,8 @@ export default function RegisterPage() {
         password
       });
 
-      // 2. Auto-login
-      const { data } = await login({ email: normalizedEmail, password });
-      setToken(data.access_token);
+      // 2. Fetch authenticated user profile into auth context
+      setToken();
 
       toast.success('Account created! Welcome to SAIS.');
       navigate('/onboarding');

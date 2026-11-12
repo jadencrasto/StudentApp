@@ -49,34 +49,19 @@ async def google_debug_config():
 # OAUTH CONNECT FLOW
 # =============================================================================
 # Step 1 — User clicks "Connect Google" on frontend
-#   → Frontend calls /auth/google/connect with user token
-#   → Backend generates Google OAuth URL and redirects user to Google
+#   → Frontend calls /auth/google/connect (cookie sent via SameSite=Lax top-level navigation)
+#   → Backend generates signed, expiring state with nonce and redirects user to Google
 # Step 2 — User authorizes on Google
-#   → Google redirects back to /auth/google/callback with auth code
-# Step 3 — Backend exchanges code for tokens
-#   → Stores access/refresh tokens in database
+#   → Google redirects back to /auth/google/callback with auth code & state
+# Step 3 — Backend validates cookie user, matches state user, verifies atomic single-use state
+#   → Exchanges code for tokens and stores access/refresh tokens in database
 # =============================================================================
 @oauth_router.get("/auth/google/connect")
 async def google_connect(
-    token: str = Query(..., min_length=20),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Initiate Google OAuth flow - redirect user to Google login page."""
-    payload = decode_access_token(token)
-    if not payload or not payload.get("sub"):
-        raise HTTPException(status_code=401, detail="Invalid auth token")
-
-    try:
-        user_id = UUID(str(payload["sub"]))
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid auth token")
-
-    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-
-    url = build_google_connect_url(str(user.id))
+    url = build_google_connect_url(str(current_user.id))
     return RedirectResponse(url=url)
 
 
@@ -84,10 +69,11 @@ async def google_connect(
 async def google_callback(
     code: str,
     state: str,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Handle Google OAuth callback - exchange auth code for tokens."""
-    await exchange_code_and_store(db, code, state)
+    await exchange_code_and_store(db, code, state, expected_user_id=current_user.id)
     # Redirect to whichever frontend port is active
     frontend_url = settings.ALLOWED_ORIGINS.split(",")[0].strip()
     return RedirectResponse(url=f"{frontend_url}/dashboard/classroom?connected=1")

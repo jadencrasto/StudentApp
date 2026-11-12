@@ -85,6 +85,7 @@ class TestProtectedEndpoints:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("method,path", PROTECTED_ROUTES)
     async def test_no_token_returns_401_or_403(self, client, method, path):
+        client.cookies.clear()
         resp = await client.request(method, path)
         assert resp.status_code in (401, 403), (
             f"{method} {path} returned {resp.status_code} instead of 401/403"

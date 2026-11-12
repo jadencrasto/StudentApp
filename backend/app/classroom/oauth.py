@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from uuid import UUID
@@ -10,13 +11,15 @@ from cryptography.fernet import InvalidToken
 from fastapi import HTTPException
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from jose import jwt
+from jose import jwt, JWTError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classroom.security import decrypt_secret, encrypt_secret
 from app.config import settings
 from app.models.integrations import GoogleToken
+from app.models.rate_limit import RateLimitEvent
 
 log = logging.getLogger(__name__)
 
@@ -37,17 +40,21 @@ def _ensure_oauth_config() -> None:
 def _state_token(user_id: str) -> str:
     payload = {
         "uid": user_id,
+        "jti": str(uuid.uuid4()),
         "purpose": "google_oauth",
-        "exp": datetime.utcnow() + timedelta(minutes=10),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def _decode_state(token: str) -> str:
-    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-    if payload.get("purpose") != "google_oauth":
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
-    return payload["uid"]
+def _decode_state(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid or expired OAuth state: {e}")
+    if payload.get("purpose") != "google_oauth" or "uid" not in payload or "jti" not in payload:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state payload")
+    return payload
 
 
 def build_google_connect_url(user_id: str) -> str:
@@ -90,12 +97,33 @@ def _to_aware_utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-async def exchange_code_and_store(db: AsyncSession, code: str, state: str) -> str:
+async def exchange_code_and_store(
+    db: AsyncSession, code: str, state: str, expected_user_id: UUID | None = None
+) -> str:
     _ensure_oauth_config()
     if not settings.GOOGLE_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_SECRET is not configured")
 
-    user_id = UUID(_decode_state(state))
+    state_data = _decode_state(state)
+    user_id = UUID(state_data["uid"])
+    jti = state_data["jti"]
+
+    if expected_user_id is not None and user_id != expected_user_id:
+        raise HTTPException(status_code=403, detail="OAuth state user mismatch with active session")
+
+    # Atomic single-use verification via unique primary key constraint in rate_limit_events
+    try:
+        replay_marker = RateLimitEvent(
+            id=UUID(jti),
+            scope="oauth_state",
+            key=f"oauth:{user_id}",
+            timestamp=datetime.now(timezone.utc),
+        )
+        db.add(replay_marker)
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="OAuth state has already been used")
 
     payload = {
         "code": code,

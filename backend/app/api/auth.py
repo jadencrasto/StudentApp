@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, Request, HTTPException, status
+from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi.util import get_remote_address
 
 from app.config import settings
 from app.core.rate_limiter import limiter
-from app.core.security import verify_password, hash_password
+from app.core.security import verify_password, hash_password, create_access_token
 from app.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -76,28 +76,60 @@ async def build_user_out(user: User, db: AsyncSession) -> UserOut:
     )
 
 
+def _set_auth_cookie(response: Response, token: str) -> None:
+    max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        max_age=max_age,
+        expires=max_age,
+        path="/",
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+
+
 @router.post("/register", response_model=UserOut, status_code=201)
 @limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute", key_func=get_remote_address)
-async def register(request: Request, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    """Register a new user account."""
+async def register(request: Request, response: Response, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """Register a new user account and issue an httpOnly auth cookie."""
     user = await auth_service.register_user(data, db)
+    token = create_access_token(user.id, token_version=user.token_version)
+    _set_auth_cookie(response, token)
     return await build_user_out(user, db)
 
 
 @router.post("/signup", response_model=UserOut, status_code=201)
 @limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute", key_func=get_remote_address)
-async def signup(request: Request, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def signup(request: Request, response: Response, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """Alias for register to support /auth/signup path."""
     user = await auth_service.register_user(data, db)
+    token = create_access_token(user.id, token_version=user.token_version)
+    _set_auth_cookie(response, token)
     return await build_user_out(user, db)
 
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute", key_func=get_remote_address)
-async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """Login and receive a JWT access token."""
+async def login(request: Request, response: Response, data: LoginRequest, db: AsyncSession = Depends(get_db)):
+    """Login and receive a JWT access token in an httpOnly cookie."""
     token = await auth_service.login_user(data, db)
+    _set_auth_cookie(response, token)
     return TokenResponse(access_token=token)
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Logout by clearing the access_token cookie."""
+    response.delete_cookie(
+        key="access_token",
+        path="/",
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+    return {"message": "Logged out successfully"}
 
 
 @router.get("/me", response_model=UserOut)

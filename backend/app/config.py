@@ -5,6 +5,13 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 
+KNOWN_PLACEHOLDER_KEYS: set[str] = {
+    "your-super-secret-key-change-this-in-production-min-32-chars",
+    "change-me-in-production-super-secret-key-32chars",
+    "your-secret-key-change-this-in-production",
+}
+
+
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "SAIS"
@@ -64,19 +71,34 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
+    # Environment & Security
+    ENVIRONMENT: str = "development"  # "development", "production", "test"
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
+    CSP_REPORT_ONLY: bool = True
+    TRUSTED_PROXIES: str = "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
-        if not v or not v.strip():
+        val = (v or "").strip()
+        if not val:
             raise ValueError("SECRET_KEY must not be empty")
-        v = v.strip()
-        if len(v) < 32:
-            raise ValueError("SECRET_KEY must be at least 32 characters long")
-        disallowed_terms = ["change-me", "placeholder", "your-super-secret", "default-secret", "secretkey"]
-        v_lower = v.lower()
-        if any(term in v_lower for term in disallowed_terms):
-            raise ValueError("SECRET_KEY cannot be a default or placeholder value")
-        return v
+        if len(val) < 32:
+            raise ValueError(f"SECRET_KEY must be at least 32 characters long (got {len(val)})")
+        if val in KNOWN_PLACEHOLDER_KEYS:
+            raise ValueError(f"SECRET_KEY cannot use placeholder or default value: {val}")
+        return val
+
+    def validate_production_security(self) -> None:
+        """Validate strict security gates for production mode at startup."""
+        if (self.ENVIRONMENT or "").strip().lower() == "production":
+            if self.DEBUG:
+                raise RuntimeError("Production safety violation: DEBUG is True. Must be False in production.")
+            if not self.COOKIE_SECURE:
+                raise RuntimeError("Production safety violation: COOKIE_SECURE is False. Must be True in production.")
+            if len(self.SECRET_KEY) < 32 or self.SECRET_KEY in KNOWN_PLACEHOLDER_KEYS:
+                raise RuntimeError("Production safety violation: SECRET_KEY is default or weak (<32 characters).")
 
     # File uploads & Storage
     UPLOAD_DIR: str = "./uploads"

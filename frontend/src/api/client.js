@@ -1,22 +1,15 @@
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1';
+const BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 const client = axios.create({
   baseURL: BASE_URL,
   timeout: 30000,
+  withCredentials: true, // Send httpOnly auth cookies
   headers: {
     'Content-Type': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest', // CSRF protection
   },
-});
-
-// Request interceptor - attach JWT token to every request
-client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('sais_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
 });
 
 // Response interceptor - handle 401 errors globally
@@ -44,6 +37,7 @@ export const api = client;
 export const authAPI = {
   register:       (data) => client.post('/auth/register', data),
   login:          (data) => client.post('/auth/login', data),
+  logout:         ()     => client.post('/auth/logout'),
   me:             ()     => client.get('/auth/me'),
   changePassword: (data) => client.post('/auth/change-password', data),
 };

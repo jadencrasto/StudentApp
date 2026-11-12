@@ -77,11 +77,9 @@ export default function CourseMaterialsPage() {
 
   function connectGoogle() {
     try {
-      const token = localStorage.getItem('sais_token')
-      if (!token) { toast.error('Please login first'); return }
-      const apiBase   = (client.defaults.baseURL || 'http://127.0.0.1:8000/api/v1').replace(/\/$/, '')
-      const apiOrigin = new URL(apiBase).origin
-      window.location.href = `${apiOrigin}/auth/google/connect?token=${encodeURIComponent(token)}`
+      const apiBase = client.defaults.baseURL || '/api/v1'
+      const origin = apiBase.startsWith('http') ? new URL(apiBase).origin : window.location.origin
+      window.location.href = `${origin}/auth/google/connect`
     } catch {
       toast.error('Failed to start Google OAuth')
     }

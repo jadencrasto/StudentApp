@@ -23,12 +23,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const { data } = await login({ email: email.trim().toLowerCase(), password });
-      localStorage.setItem('sais_token', data.access_token);
+      await login({ email: email.trim().toLowerCase(), password });
       
       // Fetch user profile immediately to determine landing route
       const { data: profile } = await getMe();
-      setToken(data.access_token);
+      setToken();
       toast.success('Welcome back!');
 
       if (profile.must_change_password) {

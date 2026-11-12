@@ -8,18 +8,18 @@ import {
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 
-const CLASSROOM_COURSES_KEY   = 'sais_classroom_courses'
-const CLASSROOM_EVENTS_KEY    = 'sais_classroom_events'
+const CLASSROOM_COURSES_KEY = 'sais_classroom_courses'
+const CLASSROOM_EVENTS_KEY = 'sais_classroom_events'
 const CLASSROOM_MATERIALS_KEY = 'sais_classroom_materials'
 const CLASSROOM_LAST_SYNC_KEY = 'sais_classroom_last_sync'
 
 export default function ClassroomDashboardPage() {
-  const [courses, setCourses]         = useState([])
-  const [events, setEvents]           = useState([])
-  const [materials, setMaterials]     = useState([])
+  const [courses, setCourses] = useState([])
+  const [events, setEvents] = useState([])
+  const [materials, setMaterials] = useState([])
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
-  const [loading, setLoading]         = useState(false)
-  const [authError, setAuthError]     = useState(null) // 'not_connected' | 'expired' | null
+  const [loading, setLoading] = useState(false)
+  const [authError, setAuthError] = useState(null) // 'not_connected' | 'expired' | null
   const [selectedCourse, setSelectedCourse] = useState('All Classrooms')
   const location = useLocation()
 
@@ -54,11 +54,9 @@ export default function ClassroomDashboardPage() {
   // ── Auth helpers ────────────────────────────────────────
   async function connectGoogle() {
     try {
-      const token = localStorage.getItem('sais_token')
-      if (!token) { toast.error('Please login first'); return }
-      const apiBase   = (client.defaults.baseURL || 'http://127.0.0.1:8000/api/v1').replace(/\/$/, '')
-      const apiOrigin = new URL(apiBase).origin
-      window.location.href = `${apiOrigin}/auth/google/connect?token=${encodeURIComponent(token)}`
+      const apiBase = client.defaults.baseURL || '/api/v1'
+      const origin = apiBase.startsWith('http') ? new URL(apiBase).origin : window.location.origin
+      window.location.href = `${origin}/auth/google/connect`
     } catch {
       toast.error('Failed to start Google OAuth')
     }
@@ -71,19 +69,19 @@ export default function ClassroomDashboardPage() {
       if (!statusResp.data?.connected) { setAuthError('not_connected'); return }
 
       const syncResp = await client.get('/classroom/sync', { timeout: 300000 })
-      const syncData      = syncResp.data || {}
-      const nextCourses   = syncData.courses   || []
-      const nextEvents    = syncData.events    || []
+      const syncData = syncResp.data || {}
+      const nextCourses = syncData.courses || []
+      const nextEvents = syncData.events || []
       const nextMaterials = syncData.materials || []
-      const syncedAt      = Date.now()
+      const syncedAt = Date.now()
 
       setCourses(nextCourses)
       setEvents(nextEvents)
       setMaterials(nextMaterials)
       setLastSyncedAt(syncedAt)
       setAuthError(null)
-      localStorage.setItem(CLASSROOM_COURSES_KEY,   JSON.stringify(nextCourses))
-      localStorage.setItem(CLASSROOM_EVENTS_KEY,    JSON.stringify(nextEvents))
+      localStorage.setItem(CLASSROOM_COURSES_KEY, JSON.stringify(nextCourses))
+      localStorage.setItem(CLASSROOM_EVENTS_KEY, JSON.stringify(nextEvents))
       localStorage.setItem(CLASSROOM_MATERIALS_KEY, JSON.stringify(nextMaterials))
       localStorage.setItem(CLASSROOM_LAST_SYNC_KEY, String(syncedAt))
     } catch (error) {
@@ -126,7 +124,7 @@ export default function ClassroomDashboardPage() {
 
   const assignments = useMemo(() =>
     events.filter(e => e.type === 'Assignment' && !isNineAClassroom(e.course))
-  , [events])
+    , [events])
 
   const courseNames = useMemo(() => {
     const names = new Set(assignments.map(a => a.course).filter(Boolean))
@@ -139,11 +137,11 @@ export default function ClassroomDashboardPage() {
   }, [assignments, selectedCourse])
 
   const categorizedAssignments = useMemo(() => {
-    const assignedWithDueDate    = []
+    const assignedWithDueDate = []
     const assignedWithoutDueDate = []
-    const submitted              = []
-    const missing                = []
-    const now                    = Date.now()
+    const submitted = []
+    const missing = []
+    const now = Date.now()
 
     const getEffectiveDueDate = a => isNineAClassroom(a.course) ? null : (a.due_date || null)
     const toTs = v => { if (!v) return null; const t = new Date(v).getTime(); return Number.isFinite(t) ? t : null }
@@ -151,9 +149,9 @@ export default function ClassroomDashboardPage() {
     const deriveStatus = a => {
       const explicit = (a.submission_status || '').toLowerCase()
       if (['assigned', 'submitted', 'late_submit', 'missing'].includes(explicit)) return explicit
-      const state    = (a.submission_state || '').toUpperCase()
-      const dueTs    = toTs(getEffectiveDueDate(a))
-      const pastDue  = dueTs ? dueTs < now : false
+      const state = (a.submission_state || '').toUpperCase()
+      const dueTs = toTs(getEffectiveDueDate(a))
+      const pastDue = dueTs ? dueTs < now : false
       if (state === 'TURNED_IN' || state === 'RETURNED') return 'submitted'
       if (state === 'RECLAIMED_BY_STUDENT') return pastDue ? 'missing' : 'assigned'
       if (state === 'NEW' || state === 'CREATED') return pastDue ? 'missing' : 'assigned'
@@ -166,8 +164,8 @@ export default function ClassroomDashboardPage() {
       if (aDue !== bDue) return aDue - bDue
       return (toTs(b.posted_at) ?? 0) - (toTs(a.posted_at) ?? 0)
     })
-    const sortByPostedDesc    = items => items.sort((a, b) => (toTs(b.posted_at) ?? 0) - (toTs(a.posted_at) ?? 0))
-    const sortByMissing       = items => items.sort((a, b) => (toTs(b.due_date) ?? 0) - (toTs(a.due_date) ?? 0))
+    const sortByPostedDesc = items => items.sort((a, b) => (toTs(b.posted_at) ?? 0) - (toTs(a.posted_at) ?? 0))
+    const sortByMissing = items => items.sort((a, b) => (toTs(b.due_date) ?? 0) - (toTs(a.due_date) ?? 0))
 
     for (const a of filteredAssignments) {
       const status = deriveStatus(a)
@@ -186,15 +184,15 @@ export default function ClassroomDashboardPage() {
   }, [filteredAssignments])
 
   const assignmentGroups = useMemo(() => [
-    { key: 'assignedWithDueDate',    title: 'Assigned With Due Date',    items: categorizedAssignments.assignedWithDueDate },
+    { key: 'assignedWithDueDate', title: 'Assigned With Due Date', items: categorizedAssignments.assignedWithDueDate },
     { key: 'assignedWithoutDueDate', title: 'Assigned Without Due Date', items: categorizedAssignments.assignedWithoutDueDate },
-    { key: 'submitted',              title: 'Submitted',                 items: categorizedAssignments.submitted },
-    { key: 'missing',                title: 'Missing',                   items: categorizedAssignments.missing },
+    { key: 'submitted', title: 'Submitted', items: categorizedAssignments.submitted },
+    { key: 'missing', title: 'Missing', items: categorizedAssignments.missing },
   ], [categorizedAssignments])
 
   const lastSyncedLabel = useMemo(() =>
     lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : 'Not synced yet'
-  , [lastSyncedAt])
+    , [lastSyncedAt])
 
   // ── Render ──────────────────────────────────────────────
   return (
@@ -385,10 +383,10 @@ export default function ClassroomDashboardPage() {
                                   title={att.title}
                                   className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-700/60 text-emerald-400 text-xs rounded-lg hover:bg-slate-600/80 transition-colors"
                                 >
-                                  {att.type === 'drive'   && <FileText    size={12} />}
-                                  {att.type === 'youtube' && <Youtube     size={12} />}
-                                  {att.type === 'link'    && <LinkIcon    size={12} />}
-                                  {att.type === 'form'    && <FileQuestion size={12} />}
+                                  {att.type === 'drive' && <FileText size={12} />}
+                                  {att.type === 'youtube' && <Youtube size={12} />}
+                                  {att.type === 'link' && <LinkIcon size={12} />}
+                                  {att.type === 'form' && <FileQuestion size={12} />}
                                   <span className="max-w-[140px] truncate">{att.title}</span>
                                 </a>
                               ))}

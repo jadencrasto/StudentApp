@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.rate_limiter import limiter
+from app.core.rate_limiter import limiter, hydrate_rate_limiters_from_db
 from app.database import (
     engine, Base, get_db,
     ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column,
@@ -48,6 +48,7 @@ from app.api.class_marks import router as class_marks_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
+    settings.validate_production_security()
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     # Storage service initialization & private bucket check
     from app.services.storage_service import get_storage_service
@@ -76,6 +77,7 @@ async def lifespan(app: FastAPI):
         await ensure_phase6b_tables()
         await ensure_phase6c_tables()
         await ensure_phase6d_tables()
+    await hydrate_rate_limiters_from_db()
     # Seed demo user for development only if explicitly enabled
     if settings.SEED_DEMO_USER:
         await _seed_demo_user()
@@ -112,12 +114,15 @@ async def _seed_demo_user():
             print("[SAIS] Seeded demo user: demo@sais.edu / password123")
 
 
+is_prod = (settings.ENVIRONMENT or "").strip().lower() == "production" or not settings.DEBUG
+
 app = FastAPI(
     title="SAIS — Smart Academic Intelligence System",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    openapi_url="/openapi.json",
+    docs_url=None if is_prod else "/docs",
+    redoc_url=None if is_prod else "/redoc",
+    openapi_url=None if is_prod else "/openapi.json",
     redirect_slashes=False,
 )
 
@@ -135,12 +140,36 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    # CSRF protection: require X-Requested-With header on all non-safe requests
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        xr = request.headers.get("x-requested-with", "").strip().lower()
+        if xr != "xmlhttprequest":
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF validation failed: missing or invalid X-Requested-With header."},
+            )
+
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    if not settings.DEBUG:
+    if (settings.ENVIRONMENT or "").strip().lower() == "production":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+    csp_directives = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com data:",
+        "img-src 'self' data: blob:",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+    ]
+    csp_value = "; ".join(csp_directives)
+    csp_header = "Content-Security-Policy-Report-Only" if settings.CSP_REPORT_ONLY else "Content-Security-Policy"
+    response.headers[csp_header] = csp_value
     return response
 
 
@@ -149,7 +178,7 @@ app.add_middleware(
     allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_headers=["Content-Type", "Accept", "Origin", "X-Requested-With"],
     expose_headers=["X-Total-Count", "X-Open-Count", "X-Pending-Count", "X-Overdue-Count"],
 )
 

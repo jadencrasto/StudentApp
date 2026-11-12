@@ -11,6 +11,7 @@ from app.models.institution import Institution, Cohort, JoinRequest, generate_jo
 from app.models.class_attendance import ClassAttendanceRecord, ClassAttendanceChangeLog
 from app.models.class_timetable import ClassTimetable
 from app.models.class_marks import Exam, Mark, MarkChangeRecord
+from app.models.rate_limit import RateLimitEvent
 
 __all__ = [
     "User",
@@ -25,5 +26,6 @@ __all__ = [
     "ClassAttendanceRecord", "ClassAttendanceChangeLog",
     "ClassTimetable",
     "Exam", "Mark", "MarkChangeRecord",
+    "RateLimitEvent",
 ]
 
