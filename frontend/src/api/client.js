@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
+const BASE_URL = import.meta?.env?.VITE_API_URL || '/api/v1';
 
 const client = axios.create({
   baseURL: BASE_URL,
@@ -12,19 +12,45 @@ const client = axios.create({
   },
 });
 
+// Navigation callback registered by router/AuthProvider for SPA navigation without full reload
+let onUnauthorizedHandler = null;
+
+export const setOnUnauthorizedHandler = (handler) => {
+  onUnauthorizedHandler = handler;
+};
+
+export const isPublicRoute = (pathname = '') => {
+  if (!pathname) return false;
+  const clean = pathname.split('?')[0].split('#')[0].replace(/\/+$/, '') || '/';
+  return clean === '/' || clean === '/login' || clean === '/register';
+};
+
 // Response interceptor - handle 401 errors globally
 client.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Only redirect to login for actual SAIS auth failures,
-      // not for third-party credential issues (e.g. Google OAuth)
       const url = error.config?.url || '';
       const isClassroomRoute = url.includes('/classroom/');
-      if (!isClassroomRoute) {
+      const isAuthMe = url.includes('/auth/me');
+
+      // 401 from /auth/me just means logged out — do not redirect, do not reload
+      if (!isClassroomRoute && !isAuthMe) {
         localStorage.removeItem('sais_token');
         localStorage.removeItem('sais_user');
-        window.location.href = '/login';
+
+        const currentPath = typeof window !== 'undefined' && window.location ? window.location.pathname : '';
+        const isPublic = isPublicRoute(currentPath);
+
+        // Never redirect if already on a public page (/login, /register, landing)
+        // Never full page reload — use router handler or auth event
+        if (!isPublic) {
+          if (typeof onUnauthorizedHandler === 'function') {
+            onUnauthorizedHandler();
+          } else if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+          }
+        }
       }
     }
     return Promise.reject(error);
