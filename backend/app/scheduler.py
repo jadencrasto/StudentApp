@@ -76,6 +76,130 @@ async def _college_events_sync_job():
         await db.commit()
 
 
+async def _storage_cleanup_job():
+    """
+    Daily maintenance job for storage leftovers:
+    1. Class timetable drafts > 48h abandoned.
+    2. Student timetable uploads never saved > 7d (failed or abandoned).
+    3. Storage objects in bucket with no matching DB row.
+    Runs in DRY-RUN / log-only mode by default until approved.
+    """
+    import os
+    import shutil
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select, or_
+    from app.config import settings
+    from app.database import AsyncSessionLocal
+    from app.models.class_timetable import ClassTimetable
+    from app.models.timetable import TimetableDocument
+    from app.models.document_alert import Document
+    from app.services.storage_service import get_storage_service
+
+    now = datetime.now(timezone.utc)
+    cutoff_drafts = now - timedelta(hours=48)
+    cutoff_student_uploads = now - timedelta(days=7)
+
+    logger.info("[storage-cleanup] Running storage audit (DRY_RUN=%s)...", settings.STORAGE_CLEANUP_DRY_RUN)
+
+    async with AsyncSessionLocal() as db:
+        # 1. Draft class timetables > 48 hours old
+        drafts_res = await db.execute(
+            select(ClassTimetable).where(
+                ClassTimetable.status == "draft",
+                ClassTimetable.created_at < cutoff_drafts,
+            )
+        )
+        abandoned_drafts = drafts_res.scalars().all()
+
+        # 2. Student timetables never saved > 7 days old (with residual storage or file path)
+        student_res = await db.execute(
+            select(TimetableDocument).where(
+                TimetableDocument.uploaded_at < cutoff_student_uploads,
+                or_(
+                    TimetableDocument.storage_path.isnot(None),
+                    TimetableDocument.file_path.isnot(None),
+                ),
+            )
+        )
+        abandoned_student_docs = student_res.scalars().all()
+
+        # 3. Bucket files with no matching DB row
+        orphaned_bucket_files = []
+        try:
+            storage = get_storage_service()
+            bucket = settings.SUPABASE_STORAGE_BUCKET
+            bucket_files = await storage.list_files(bucket)
+            if bucket_files:
+                doc_paths_res = await db.execute(select(Document.storage_path).where(Document.storage_path.isnot(None)))
+                ct_paths_res = await db.execute(select(ClassTimetable.image_storage_path).where(ClassTimetable.image_storage_path.isnot(None)))
+                tt_paths_res = await db.execute(select(TimetableDocument.storage_path).where(TimetableDocument.storage_path.isnot(None)))
+
+                known_paths = set(doc_paths_res.scalars().all()) | set(ct_paths_res.scalars().all()) | set(tt_paths_res.scalars().all())
+                orphaned_bucket_files = [f for f in bucket_files if f not in known_paths]
+        except Exception as scan_err:
+            logger.warning("[storage-cleanup] Cloud bucket file scan skipped/failed: %s", scan_err)
+
+        logger.info(
+            "[storage-cleanup] Candidates found: %d abandoned class drafts (>48h), %d unsaved student timetables (>7d), %d orphaned bucket files (no DB row)",
+            len(abandoned_drafts),
+            len(abandoned_student_docs),
+            len(orphaned_bucket_files),
+        )
+
+        for d in abandoned_drafts:
+            logger.info("  [abandoned-class-draft] id=%s, cohort=%s, storage=%s, local=%s", d.id, d.cohort_id, d.image_storage_path, d.image_path)
+        for s in abandoned_student_docs:
+            logger.info("  [unsaved-student-doc] id=%s, user=%s, status=%s, storage=%s, local=%s", s.id, s.user_id, s.extraction_status, s.storage_path, s.file_path)
+        for orphan in orphaned_bucket_files:
+            logger.info("  [orphaned-bucket-file] path=%s (no matching DB row)", orphan)
+
+        if settings.STORAGE_CLEANUP_DRY_RUN:
+            logger.info("[storage-cleanup] DRY-RUN active — log-only audit complete, no files deleted.")
+            return
+
+        # LIVE MODE: executed only when STORAGE_CLEANUP_DRY_RUN=False
+        trash_dir = os.path.join("_trash", f"uploads_cleanup_{now.strftime('%Y%m%d_%H%M%S')}")
+        os.makedirs(trash_dir, exist_ok=True)
+        storage = get_storage_service()
+
+        for d in abandoned_drafts:
+            if d.image_storage_path:
+                try:
+                    await storage.delete_file(d.image_storage_bucket or settings.SUPABASE_STORAGE_BUCKET, d.image_storage_path)
+                except Exception as exc:
+                    logger.warning("[storage-cleanup] Storage delete failed for %s: %s", d.image_storage_path, exc)
+                d.image_storage_path = None
+            if d.image_path and os.path.isfile(d.image_path):
+                try:
+                    shutil.move(d.image_path, os.path.join(trash_dir, os.path.basename(d.image_path)))
+                except Exception as exc:
+                    logger.warning("[storage-cleanup] Trash move failed for %s: %s", d.image_path, exc)
+                d.image_path = None
+
+        for s in abandoned_student_docs:
+            if s.storage_path:
+                try:
+                    await storage.delete_file(s.storage_bucket or settings.SUPABASE_STORAGE_BUCKET, s.storage_path)
+                except Exception as exc:
+                    logger.warning("[storage-cleanup] Storage delete failed for %s: %s", s.storage_path, exc)
+                s.storage_path = None
+            if s.file_path and os.path.isfile(s.file_path):
+                try:
+                    shutil.move(s.file_path, os.path.join(trash_dir, os.path.basename(s.file_path)))
+                except Exception as exc:
+                    logger.warning("[storage-cleanup] Trash move failed for %s: %s", s.file_path, exc)
+                s.file_path = None
+
+        for orphan in orphaned_bucket_files:
+            try:
+                await storage.delete_file(settings.SUPABASE_STORAGE_BUCKET, orphan)
+            except Exception as exc:
+                logger.warning("[storage-cleanup] Storage delete failed for orphan %s: %s", orphan, exc)
+
+        await db.commit()
+        logger.info("[storage-cleanup] Live cleanup complete. Local files moved to %s", trash_dir)
+
+
 def start_scheduler():
     # Run alert generation every day at 8:00 AM
     scheduler.add_job(
@@ -98,8 +222,15 @@ def start_scheduler():
         id="college_events_sync",
         replace_existing=True,
     )
+    # Storage audit & cleanup once a day at 3:00 AM (dry-run by default)
+    scheduler.add_job(
+        _storage_cleanup_job,
+        trigger=CronTrigger(hour=3, minute=0),
+        id="storage_cleanup",
+        replace_existing=True,
+    )
     scheduler.start()
-    logger.info("Scheduler started: daily_alerts at 8AM, mark_overdue at midnight, college_events_sync daily at 2AM")
+    logger.info("Scheduler started: daily_alerts at 8AM, mark_overdue at midnight, college_events_sync at 2AM, storage_cleanup at 3AM")
 
 
 def stop_scheduler():

@@ -16,6 +16,7 @@ from app.database import get_db, AsyncSessionLocal
 from app.core.dependencies import get_current_user
 from app.core.upload_security import validate_and_read_upload
 from app.config import settings
+from app.services.storage_service import get_storage_service
 from app.models.user import User
 from app.models import Document, Assignment, TaskType, ExtractionStatus
 from app.schemas.schemas import DocumentOut, AssignmentOut
@@ -74,6 +75,28 @@ def _extract_text_from_image(file_path: str) -> str:
         return f"[OCR error: {e}]"
 
 
+def _extract_text_from_doc_bytes(file_bytes: bytes) -> str:
+    """Extract text from DOCX bytes with latin-1 fallback."""
+    import io
+    try:
+        from docx import Document as DocxDocument
+        doc = DocxDocument(io.BytesIO(file_bytes))
+        parts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+        text = "\n".join(parts).strip()
+        if text:
+            return text
+    except Exception:
+        pass
+
+    try:
+        decoded = file_bytes.decode("latin-1", errors="ignore")
+        lines = [line.strip() for line in decoded.splitlines()]
+        candidates = [line for line in lines if len(line.split()) >= 3]
+        return "\n".join(candidates[:400])
+    except Exception as e:
+        return f"[DOC extraction error: {e}]"
+
+
 def _extract_text_from_doc(file_path: str) -> str:
     """Extract text from DOCX (and best-effort DOC fallback)."""
     try:
@@ -116,15 +139,49 @@ async def _process_document(doc_id: str, user_id: str):
 
             # ── Step 1: Extract raw text ──────────────────────────────────
             import anyio
+            import io
+
+            # Retrieve bytes from storage or fallback to local disk
+            file_bytes: bytes | None = None
+            if doc.storage_path:
+                storage = get_storage_service()
+                bucket = doc.storage_bucket or settings.SUPABASE_STORAGE_BUCKET
+                try:
+                    file_bytes = await storage.download_file(bucket, doc.storage_path)
+                except Exception as dl_err:
+                    logger.warning("Failed to download storage file %s: %s", doc.storage_path, dl_err)
+
+            if file_bytes is None and doc.file_path and os.path.exists(doc.file_path):
+                async with aiofiles.open(doc.file_path, "rb") as f:
+                    file_bytes = await f.read()
+
+            if file_bytes is None:
+                raise RuntimeError(f"Could not locate file data for document {doc.id}")
+
             if doc.file_type == "pdf":
-                raw_text = await anyio.to_thread.run_sync(_extract_text_from_pdf, doc.file_path)
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp.write(file_bytes)
+                    tmp_path = tmp.name
+                try:
+                    raw_text = await anyio.to_thread.run_sync(_extract_text_from_pdf, tmp_path)
+                finally:
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except Exception as rem_err:
+                            logger.warning("Failed removing temporary PDF file %s: %s", tmp_path, rem_err)
             elif doc.file_type == "image":
-                raw_text = await anyio.to_thread.run_sync(_extract_text_from_image, doc.file_path)
+                import pytesseract
+                from PIL import Image
+                if settings.TESSERACT_CMD:
+                    pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_CMD
+                img = Image.open(io.BytesIO(file_bytes))
+                raw_text = await anyio.to_thread.run_sync(pytesseract.image_to_string, img)
             elif doc.file_type == "doc":
-                raw_text = await anyio.to_thread.run_sync(_extract_text_from_doc, doc.file_path)
+                raw_text = await anyio.to_thread.run_sync(_extract_text_from_doc_bytes, file_bytes)
             else:  # txt
-                async with aiofiles.open(doc.file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    raw_text = await f.read()
+                raw_text = file_bytes.decode("utf-8", errors="ignore")
 
             doc.raw_text = raw_text[:50000]
 
@@ -202,27 +259,44 @@ async def upload_document(
         content_type = file.content_type or ""
         file_category = ALLOWED_TYPES.get(content_type, "txt")
 
-    # Ensure upload directory exists
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    # 1. Upload to storage first
+    storage = get_storage_service()
+    bucket = settings.SUPABASE_STORAGE_BUCKET
+    stored_id = uuid.uuid4()
+    storage_path = f"documents/{user.id}/{stored_id}.{ext}"
+    content_type = file.content_type or f"application/{ext}"
 
-    # Save file to disk
-    stored_name = f"{uuid.uuid4()}.{ext}"
-    file_path = os.path.join(settings.UPLOAD_DIR, stored_name)
+    try:
+        await storage.upload_file(bucket, storage_path, file_bytes, content_type)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Storage service unavailable. Please try again later.",
+        ) from exc
 
-    async with aiofiles.open(file_path, "wb") as f:
-        await f.write(file_bytes)
-
-    # Save document record and commit so the background task can find it
-    doc = Document(
-        user_id=user.id,
-        original_filename=file.filename,
-        file_path=file_path,
-        file_type=file_category,
-        extraction_status=ExtractionStatus.pending,
-    )
-    db.add(doc)
-    await db.commit()
-    await db.refresh(doc)
+    # 2. Save document record; if commit fails, delete uploaded file from storage
+    try:
+        doc = Document(
+            id=stored_id,
+            user_id=user.id,
+            original_filename=file.filename,
+            file_path=storage_path,
+            storage_path=storage_path,
+            storage_bucket=bucket,
+            file_type=file_category,
+            extraction_status=ExtractionStatus.pending,
+        )
+        db.add(doc)
+        await db.commit()
+        await db.refresh(doc)
+    except Exception as exc:
+        await db.rollback()
+        # Compensating delete: remove file from storage so no orphan is left
+        try:
+            await storage.delete_file(bucket, storage_path)
+        except Exception as del_err:
+            logger.warning("Compensating storage delete failed for %s: %s", storage_path, del_err)
+        raise HTTPException(status_code=500, detail="Failed to save document record.") from exc
 
     # Kick off background extraction via FastAPI BackgroundTasks (reliable)
     background_tasks.add_task(_process_document, str(doc.id), str(user.id))

@@ -1,7 +1,12 @@
 import uuid
+import logging
+import os
 from datetime import datetime
+
+logger = logging.getLogger("sais.timetable")
 from zoneinfo import ZoneInfo
 from difflib import SequenceMatcher
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -60,11 +65,22 @@ async def match_subject_to_database(extracted_name: str, user_id: UUID, db: Asyn
     return None
 
 
-async def process_timetable_upload(user_id: UUID, file_name: str, file_path: str, file_type: str, db: AsyncSession) -> dict:
+async def process_timetable_upload(
+    user_id: UUID,
+    file_name: str,
+    file_path: str,
+    file_type: str,
+    db: AsyncSession,
+    storage_path: Optional[str] = None,
+    storage_bucket: Optional[str] = None,
+    file_bytes: Optional[bytes] = None,
+) -> dict:
     doc = TimetableDocument(
         user_id=user_id,
         file_name=file_name,
         file_path=file_path,
+        storage_path=storage_path,
+        storage_bucket=storage_bucket,
         file_type=file_type,
         extraction_status="processing",
         extracted_data={},
@@ -74,7 +90,10 @@ async def process_timetable_upload(user_id: UUID, file_name: str, file_path: str
 
     # Use Gemini Vision API for timetable extraction
     extractor = GeminiTimetableExtractor()
-    result = await extractor.extract_from_file(file_path)
+    if file_bytes:
+        result = await extractor.extract_from_image(file_bytes)
+    else:
+        result = await extractor.extract_from_file(file_path)
 
     if result["status"] == "failed":
         doc.extraction_status = "failed"
@@ -141,6 +160,30 @@ async def bulk_save_timetable(user_id: UUID, entries: list[dict], db: AsyncSessi
             is_active=True,
         )
         db.add(timetable_entry)
+
+    await db.flush()
+
+    # Rule: Student timetable images are deleted after the extracted schedule is saved
+    from app.services.storage_service import get_storage_service
+    storage = get_storage_service()
+    docs_res = await db.execute(
+        select(TimetableDocument).where(TimetableDocument.user_id == user_id)
+    )
+    docs = docs_res.scalars().all()
+    for d in docs:
+        if d.storage_path:
+            b = d.storage_bucket or settings.SUPABASE_STORAGE_BUCKET
+            try:
+                await storage.delete_file(b, d.storage_path)
+            except Exception as exc:
+                logger.warning("Failed to delete student timetable image from storage %s: %s", d.storage_path, exc)
+            d.storage_path = None
+        if d.file_path and os.path.isfile(d.file_path):
+            try:
+                os.remove(d.file_path)
+            except Exception as exc:
+                logger.warning("Failed to delete local student timetable file %s: %s", d.file_path, exc)
+            d.file_path = None
 
     await db.flush()
     return {"status": "success", "saved": len(entries)}

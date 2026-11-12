@@ -394,6 +394,8 @@ async def save_or_update_draft(
     admin_user: User,
     db: AsyncSession,
     image_path: Optional[str] = None,
+    image_storage_path: Optional[str] = None,
+    image_storage_bucket: Optional[str] = None,
 ) -> Tuple[ClassTimetable, List[str]]:
     """Save or update the single draft timetable for this cohort."""
     sanitized, warnings = validate_timetable_entries(entries)
@@ -401,6 +403,17 @@ async def save_or_update_draft(
     draft = await get_draft_timetable(cohort.id, db)
     if draft:
         draft.entries = sanitized
+        if image_storage_path:
+            if draft.image_storage_path:
+                from app.services.storage_service import get_storage_service
+                storage = get_storage_service()
+                b = draft.image_storage_bucket or settings.SUPABASE_STORAGE_BUCKET
+                try:
+                    await storage.delete_file(b, draft.image_storage_path)
+                except Exception as exc:
+                    logger.warning("Failed to delete old draft image from storage %s: %s", draft.image_storage_path, exc)
+            draft.image_storage_path = image_storage_path
+            draft.image_storage_bucket = image_storage_bucket
         if image_path:
             cleanup_stored_image(draft.image_path)
             draft.image_path = image_path
@@ -412,6 +425,8 @@ async def save_or_update_draft(
             status="draft",
             entries=sanitized,
             image_path=image_path,
+            image_storage_path=image_storage_path,
+            image_storage_bucket=image_storage_bucket,
             created_by=admin_user.id,
         )
         db.add(draft)
@@ -425,6 +440,15 @@ async def discard_draft_timetable(cohort: Cohort, db: AsyncSession) -> bool:
     draft = await get_draft_timetable(cohort.id, db)
     if not draft:
         return False
+
+    if draft.image_storage_path:
+        from app.services.storage_service import get_storage_service
+        storage = get_storage_service()
+        b = draft.image_storage_bucket or settings.SUPABASE_STORAGE_BUCKET
+        try:
+            await storage.delete_file(b, draft.image_storage_path)
+        except Exception as exc:
+            logger.warning("Failed to delete draft image from storage %s: %s", draft.image_storage_path, exc)
 
     if draft.image_path:
         cleanup_stored_image(draft.image_path)
@@ -486,6 +510,16 @@ async def publish_draft_timetable(
     draft.updated_at = datetime.utcnow()
 
     # 3. Clean up stored image file upon publishing
+    if draft.image_storage_path:
+        from app.services.storage_service import get_storage_service
+        storage = get_storage_service()
+        b = draft.image_storage_bucket or settings.SUPABASE_STORAGE_BUCKET
+        try:
+            await storage.delete_file(b, draft.image_storage_path)
+        except Exception as exc:
+            logger.warning("Failed to delete published timetable image from storage %s: %s", draft.image_storage_path, exc)
+        draft.image_storage_path = None
+
     if draft.image_path:
         cleanup_stored_image(draft.image_path)
         draft.image_path = None

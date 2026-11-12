@@ -34,10 +34,12 @@ os.environ.setdefault("GEMINI_API_KEY_CHAT", "test-gemini-chat-key")
 os.environ.setdefault("GEMINI_API_KEY_TIMETABLE", "test-gemini-timetable-key")
 _TEST_UPLOAD_DIR = tempfile.mkdtemp(prefix="sais_test_uploads_")
 os.environ["UPLOAD_DIR"] = _TEST_UPLOAD_DIR
+os.environ["STORAGE_BACKEND"] = "fake"
 
 # Now it is safe to import the app
 from app.config import settings  # noqa: E402
 settings.UPLOAD_DIR = _TEST_UPLOAD_DIR
+settings.STORAGE_BACKEND = "fake"
 from app.database import Base  # noqa: E402
 
 # ── 2. Create a separate async engine for tests ───────────────────────

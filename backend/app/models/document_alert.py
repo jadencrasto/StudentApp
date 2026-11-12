@@ -24,6 +24,8 @@ class Document(Base):
     original_filename:  Mapped[str | None]        = mapped_column(String(500))
     file_type:          Mapped[str | None]        = mapped_column(String(50))   # pdf, image, txt
     file_path:          Mapped[str | None]        = mapped_column(Text)
+    storage_path:       Mapped[str | None]        = mapped_column(String(600), nullable=True)
+    storage_bucket:     Mapped[str | None]        = mapped_column(String(100), nullable=True)
     raw_text:           Mapped[str | None]        = mapped_column(Text)         # full extracted text
     extracted_data:     Mapped[dict]              = mapped_column(JSON, default=dict)
     # e.g. {"subject": "Physics", "deadline": "2025-03-10",

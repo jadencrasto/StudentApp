@@ -49,6 +49,19 @@ from app.api.class_marks import router as class_marks_router
 async def lifespan(app: FastAPI):
     import asyncio
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    # Storage service initialization & private bucket check
+    from app.services.storage_service import get_storage_service
+    storage = get_storage_service()
+    backend_mode = (settings.STORAGE_BACKEND or "supabase").strip().lower()
+    if backend_mode == "supabase":
+        exists = await storage.check_bucket_exists(settings.SUPABASE_STORAGE_BUCKET)
+        if not exists:
+            raise RuntimeError(
+                f"Supabase Storage bucket '{settings.SUPABASE_STORAGE_BUCKET}' does not exist! "
+                "Please create it as a PRIVATE bucket in the Supabase Storage dashboard."
+            )
+    else:
+        logger.info("Storage backend '%s' configured: skipping remote bucket check.", backend_mode)
     if settings.DATABASE_URL.startswith("sqlite"):
         if settings.DEBUG:
             async with engine.begin() as conn:

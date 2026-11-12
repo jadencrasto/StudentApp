@@ -29,6 +29,7 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.dependencies import get_current_user, require_admin
 from app.core.rate_limiter import ai_extraction_tracker, limiter
 from app.database import get_db
@@ -120,10 +121,25 @@ async def extract_timetable(
     # 4. Pillow verify, dimension checking, re-encoding, and secure disk storage
     reencoded_bytes, stored_path = validate_and_reencode_image(file_bytes)
 
+    # 4b. Upload re-encoded PNG to cloud storage first
+    try:
+        from app.services.storage_service import get_storage_service
+        storage = get_storage_service()
+        bucket = settings.SUPABASE_STORAGE_BUCKET
+        storage_path = f"institutions/{cohort.institution_id}/cohorts/{cohort.id}/timetables/{uuid.uuid4()}.png"
+        await storage.upload_file(bucket, storage_path, reencoded_bytes, "image/png")
+    except Exception as exc:
+        cleanup_stored_image(stored_path)
+        raise HTTPException(status_code=503, detail="Storage service unavailable. Please try again later.") from exc
+
     # 5. Check if a draft already exists for this cohort
     existing_draft = await get_draft_timetable(cohort.id, db)
     if existing_draft and not replace_draft:
         cleanup_stored_image(stored_path)
+        try:
+            await storage.delete_file(bucket, storage_path)
+        except Exception as del_err:
+            logger.warning("Failed to delete draft image %s from storage: %s", storage_path, del_err)
         raise HTTPException(
             status_code=409,
             detail="A draft timetable already exists for this class. Please confirm if you wish to overwrite it.",
@@ -137,15 +153,27 @@ async def extract_timetable(
     extracted_entries = extraction_result.get("entries") or []
 
     # 7. Persist as draft if entries found or save empty draft for manual completion
-    draft_record, warnings = await save_or_update_draft(
-        cohort=cohort,
-        entries=extracted_entries,
-        admin_user=admin_user,
-        db=db,
-        image_path=stored_path,
-    )
-    await db.commit()
-    await db.refresh(draft_record)
+    try:
+        draft_record, warnings = await save_or_update_draft(
+            cohort=cohort,
+            entries=extracted_entries,
+            admin_user=admin_user,
+            db=db,
+            image_path=stored_path,
+            image_storage_path=storage_path,
+            image_storage_bucket=bucket,
+        )
+        await db.commit()
+        await db.refresh(draft_record)
+    except Exception as exc:
+        logger.exception("extract_timetable failed: %s", exc)
+        await db.rollback()
+        cleanup_stored_image(stored_path)
+        try:
+            await storage.delete_file(bucket, storage_path)
+        except Exception as del_err:
+            logger.warning("Failed to delete storage file %s during rollback: %s", storage_path, del_err)
+        raise
 
     return ExtractTimetableResponse(
         status=extraction_result["status"],

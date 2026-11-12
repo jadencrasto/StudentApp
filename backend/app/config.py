@@ -78,9 +78,14 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY cannot be a default or placeholder value")
         return v
 
-    # File uploads
+    # File uploads & Storage
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
+    STORAGE_BACKEND: str = "supabase"
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+    SUPABASE_STORAGE_BUCKET: str = "sais-private"
+    STORAGE_CLEANUP_DRY_RUN: bool = True
 
     def get_gemini_chat_key(self) -> str:
         key = self.GEMINI_API_KEY_CHAT or self.GEMINI_API_KEY

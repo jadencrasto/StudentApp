@@ -70,4 +70,56 @@ async def validate_and_read_upload(
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     file_bytes = b"".join(chunks)
+
+    # 3. Magic bytes / file signature validation
+    if not _matches_magic_bytes(file_bytes, ext):
+        raise HTTPException(
+            status_code=400,
+            detail=f"File content does not match the claimed extension '.{ext}'. Upload rejected.",
+        )
+
     return file_bytes, ext
+
+
+def _matches_magic_bytes(data: bytes, ext: str) -> bool:
+    """Validate that the file header matches known signatures for the claimed extension."""
+    if not data:
+        return False
+
+    if ext == "pdf":
+        return data.startswith(b"%PDF")
+
+    if ext == "png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+
+    if ext in ("jpg", "jpeg"):
+        return data.startswith(b"\xff\xd8\xff")
+
+    if ext == "docx":
+        # DOCX is a zip archive (starts with PK\x03\x04)
+        if not data.startswith(b"PK\x03\x04"):
+            return False
+        import zipfile
+        import io
+        try:
+            with zipfile.ZipFile(io.BytesIO(data), "r") as zf:
+                names = set(zf.namelist())
+                return "[Content_Types].xml" in names or any(n.startswith("word/") for n in names)
+        except Exception:
+            return False
+
+    if ext == "txt":
+        # Disallow binary null bytes in plain text files
+        if b"\x00" in data[:4096]:
+            return False
+        try:
+            data[:4096].decode("utf-8")
+            return True
+        except UnicodeDecodeError:
+            try:
+                data[:4096].decode("latin-1")
+                return True
+            except Exception:
+                return False
+
+    return True

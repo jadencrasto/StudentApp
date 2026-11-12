@@ -29,6 +29,8 @@ class ClassTimetable(Base):
     status:         Mapped[str]             = mapped_column(String(20), nullable=False, default="draft", index=True)  # draft | published | archived
     entries:        Mapped[list]            = mapped_column(JSON, nullable=False, default=list)
     image_path:     Mapped[str | None]      = mapped_column(String(500), nullable=True)
+    image_storage_path:   Mapped[str | None]= mapped_column(String(600), nullable=True)
+    image_storage_bucket: Mapped[str | None]= mapped_column(String(100), nullable=True)
     created_by:     Mapped[uuid.UUID | None]= mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     published_at:   Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at:     Mapped[datetime]        = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)

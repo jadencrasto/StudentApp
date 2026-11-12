@@ -43,24 +43,54 @@ async def upload_timetable(
     )
     filename = file.filename or "timetable_upload"
 
+    from app.services.storage_service import get_storage_service
+    storage = get_storage_service()
+    bucket = settings.SUPABASE_STORAGE_BUCKET
+    stored_name = f"{uuid.uuid4()}.{ext}"
+    storage_path = f"users/{current_user.id}/timetables/{stored_name}"
+    content_type = file.content_type or f"image/{ext}"
+
+    # 1. Upload to storage first
+    try:
+        await storage.upload_file(bucket, storage_path, file_bytes, content_type)
+    except Exception as exc:
+        logger.exception("Storage upload failed for timetable: %s", exc)
+        raise HTTPException(status_code=503, detail="Storage service unavailable. Please try again later.") from exc
+
+    # Optional local mirror for dev compatibility if directory configured
     timetable_upload_dir = os.path.join(settings.UPLOAD_DIR, "timetables")
     os.makedirs(timetable_upload_dir, exist_ok=True)
-
-    stored_name = f"{uuid.uuid4()}.{ext}"
     file_path = os.path.join(timetable_upload_dir, stored_name)
-
-    async with aiofiles.open(file_path, "wb") as out:
-        await out.write(file_bytes)
+    try:
+        async with aiofiles.open(file_path, "wb") as out:
+            await out.write(file_bytes)
+    except Exception as disk_err:
+        logger.warning("Local mirror write skipped/failed: %s", disk_err)
 
     try:
         result = await timetable_service.process_timetable_upload(
             user_id=current_user.id,
             file_name=filename,
             file_path=file_path,
+            storage_path=storage_path,
+            storage_bucket=bucket,
+            file_bytes=file_bytes,
             file_type=ext,
             db=db,
         )
+        await db.commit()
     except Exception as e:
+        await db.rollback()
+        # Compensating delete from storage
+        try:
+            await storage.delete_file(bucket, storage_path)
+        except Exception as del_err:
+            logger.warning("Compensating storage delete failed for %s: %s", storage_path, del_err)
+        if os.path.isfile(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as rem_err:
+                logger.warning("Failed removing local timetable file %s: %s", file_path, rem_err)
         logger.exception("Timetable extraction failed for %s", filename)
         raise HTTPException(
             status_code=500,
@@ -75,8 +105,12 @@ async def save_timetable_entries_bulk(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    payload = [entry.model_dump() for entry in entries]
-    return await timetable_service.bulk_save_timetable(current_user.id, payload, db)
+    try:
+        payload = [entry.model_dump() for entry in entries]
+        return await timetable_service.bulk_save_timetable(current_user.id, payload, db)
+    except Exception as e:
+        logger.exception("Bulk save timetable entries failed: %s", e)
+        raise
 
 
 @router.get("/entries", response_model=list[TimetableEntryOut])
