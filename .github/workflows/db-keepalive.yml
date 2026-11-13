@@ -44,10 +44,19 @@ jobs:
           fi
           # Install lightweight postgresql client
           sudo apt-get -qq update && sudo apt-get -qq install -y postgresql-client > /dev/null 2>&1
-          # Run harmless SELECT 1 — output redirected to /dev/null so no connection details are logged
-          if psql "$PGDATABASE_URL" -c "SELECT 1;" > /dev/null 2>&1; then
+          # Run SELECT 1 with 10s timeout, -w = never prompt for password
+          # Capture stderr for diagnostics; stdout to /dev/null
+          PSQL_ERR=$(psql -w "$PGDATABASE_URL" -c "SELECT 1;" \
+                     -v connect_timeout=10 2>&1 >/dev/null) && RC=0 || RC=$?
+          if [ "$RC" -eq 0 ]; then
             echo "Keep-alive: connected successfully at $(date -u)"
           else
-            echo "::error::Keep-alive: database ping FAILED. Check credentials or pooler status."
+            # Strip anything that looks like a connection string, host, user, or password
+            SAFE_ERR=$(echo "$PSQL_ERR" | sed -E \
+              -e 's|postgresql://[^ ]*|<redacted>|g' \
+              -e 's|host "[^"]*"|host "<redacted>"|g' \
+              -e 's|user "[^"]*"|user "<redacted>"|g' \
+              -e 's|"[A-Za-z0-9+/=_.-]{12,}"|"<redacted>"|g')
+            echo "::error::Keep-alive: database ping FAILED. ${SAFE_ERR}"
             exit 1
           fi
