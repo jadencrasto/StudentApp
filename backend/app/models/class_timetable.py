@@ -24,9 +24,9 @@ class ClassTimetable(Base):
     __tablename__ = "class_timetables"
 
     id:             Mapped[uuid.UUID]       = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    institution_id: Mapped[uuid.UUID]       = mapped_column(Uuid(as_uuid=True), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
-    cohort_id:      Mapped[uuid.UUID]       = mapped_column(Uuid(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, index=True)
-    status:         Mapped[str]             = mapped_column(String(20), nullable=False, default="draft", index=True)  # draft | published | archived
+    institution_id: Mapped[uuid.UUID]       = mapped_column(Uuid(as_uuid=True), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False)
+    cohort_id:      Mapped[uuid.UUID]       = mapped_column(Uuid(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False)
+    status:         Mapped[str]             = mapped_column(String(20), nullable=False, default="draft")  # draft | published | archived
     entries:        Mapped[list]            = mapped_column(JSON, nullable=False, default=list)
     image_path:     Mapped[str | None]      = mapped_column(String(500), nullable=True)
     image_storage_path:   Mapped[str | None]= mapped_column(String(600), nullable=True)
@@ -42,6 +42,9 @@ class ClassTimetable(Base):
     creator     = relationship("User")
 
     __table_args__ = (
+        Index("ix_class_timetable_institution", "institution_id"),
+        Index("ix_class_timetable_cohort", "cohort_id"),
+        Index("ix_class_timetable_status", "status"),
         Index(
             "uq_one_published_per_cohort",
             "cohort_id",

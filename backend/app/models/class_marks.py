@@ -28,19 +28,21 @@ class Exam(Base):
         ),
         Index("ix_exams_cohort_status", "cohort_id", "status"),
         Index("ix_exams_institution", "institution_id"),
+        Index("ix_exams_cohort", "cohort_id"),
+        Index("ix_exams_status", "status"),
     )
 
     id:                 Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    institution_id:     Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
-    cohort_id:          Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, index=True)
-    exam_type:          Mapped[str]              = mapped_column(String(50), nullable=False, index=True)  # internals, mid-term, end-term, etc.
+    institution_id:     Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False)
+    cohort_id:          Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False)
+    exam_type:          Mapped[str]              = mapped_column(String(50), nullable=False)  # internals, mid-term, end-term, etc.
     title:              Mapped[str]              = mapped_column(String(150), nullable=False)            # e.g. "Test 1"
     title_normalized:   Mapped[str]              = mapped_column(String(150), nullable=False)
     subject:            Mapped[str]              = mapped_column(String(100), nullable=False)
     subject_normalized: Mapped[str]              = mapped_column(String(100), nullable=False)
     max_marks:          Mapped[Decimal]          = mapped_column(Numeric(6, 2), nullable=False)           # exact decimal
     exam_date:          Mapped[date | None]      = mapped_column(Date, nullable=True)
-    status:             Mapped[str]              = mapped_column(String(20), nullable=False, default="draft", index=True)  # draft | published
+    status:             Mapped[str]              = mapped_column(String(20), nullable=False, default="draft")  # draft | published
     created_by:         Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     published_at:       Mapped[datetime | None]  = mapped_column(DateTime(timezone=True), nullable=True)
     created_at:         Mapped[datetime]         = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
@@ -58,12 +60,14 @@ class Mark(Base):
     __tablename__ = "marks"
     __table_args__ = (
         UniqueConstraint("exam_id", "student_id", name="uq_exam_student_mark"),
+        Index("ix_marks_exam", "exam_id"),
+        Index("ix_marks_student", "student_id"),
         Index("ix_marks_student_exam", "student_id", "exam_id"),
     )
 
     id:             Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    exam_id:        Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
-    student_id:     Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    exam_id:        Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("exams.id", ondelete="CASCADE"), nullable=False)
+    student_id:     Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     marks_obtained: Mapped[Decimal | None]   = mapped_column(Numeric(6, 2), nullable=True)
     is_absent:      Mapped[bool]             = mapped_column(Boolean, default=False, nullable=False)
     entered_by:     Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -85,9 +89,9 @@ class MarkChangeRecord(Base):
     )
 
     id:              Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    mark_id:         Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("marks.id", ondelete="CASCADE"), nullable=False, index=True)
-    exam_id:         Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
-    student_id:      Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    mark_id:         Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("marks.id", ondelete="CASCADE"), nullable=False)
+    exam_id:         Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("exams.id", ondelete="CASCADE"), nullable=False)
+    student_id:      Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     changed_by:      Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     previous_marks:  Mapped[Decimal | None]   = mapped_column(Numeric(6, 2), nullable=True)
     new_marks:       Mapped[Decimal | None]   = mapped_column(Numeric(6, 2), nullable=True)

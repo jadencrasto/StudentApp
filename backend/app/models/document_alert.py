@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Text, DateTime, ForeignKey, Date, Boolean, Enum, Uuid, JSON, Index
+import sqlalchemy as sa
+from sqlalchemy import String, Text, DateTime, ForeignKey, Date, Boolean, Enum, Uuid, JSON, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 import enum
@@ -59,7 +60,13 @@ class AlertSeverity(str, enum.Enum):
 class Alert(Base):
     __tablename__ = "alerts"
     __table_args__ = (
-        Index("ix_alerts_user_unread", "user_id", "is_read", "created_at"),
+        Index(
+            "ix_alerts_user_unread",
+            "user_id",
+            text("created_at DESC"),
+            postgresql_where=text("is_read = false"),
+            sqlite_where=text("is_read = 0"),
+        ),
     )
 
     id:         Mapped[uuid.UUID]    = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)

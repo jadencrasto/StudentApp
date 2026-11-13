@@ -57,5 +57,5 @@ openpyxl>=3.1.5                # Excel spreadsheet parsing & generation (.xlsx)
 
 # Testing (dev)
 pytest>=8.2.0
-pytest-asyncio>=0.23.0
+pytest-asyncio==1.4.1.post1
 # httpx is already listed above — also used by tests via httpx.ASGITransport

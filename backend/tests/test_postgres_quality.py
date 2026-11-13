@@ -5,13 +5,17 @@ Tests 10 key domain patterns directly against local PostgreSQL 18
 to verify PostgreSQL-specific dialect behaviors, partial unique indexes,
 GROUP BY aggregations, RLS, and async transaction isolation.
 """
+import io
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import patch, AsyncMock
+from PIL import Image
 import pytest
 from sqlalchemy import select, func, text, case
 from sqlalchemy.exc import IntegrityError
 
+from app.config import settings
 from app.models.institution import Institution, Cohort, JoinRequest
 from app.models.user import User
 from app.models.assignment import Assignment
@@ -21,7 +25,21 @@ from app.models.class_timetable import ClassTimetable
 from app.models.class_marks import Exam, Mark
 from app.models.integrations import CollegeEvent, GoogleToken
 from app.models.rate_limit import RateLimitEvent
+from app.models.document_alert import Document
+from app.models.timetable import TimetableDocument, TimetableEntry
 from app.core.security import hash_password, create_access_token
+from app.services.storage_service import FakeStorageDriver, set_storage_service
+
+
+def _valid_pdf_bytes() -> bytes:
+    return b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
+
+
+def _valid_png_bytes(width: int = 20, height: int = 20) -> bytes:
+    buf = io.BytesIO()
+    img = Image.new("RGB", (width, height), color=(50, 100, 150))
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -378,3 +396,289 @@ async def test_pg_missing_greenlet_cascade_check(pg_db):
     # Verify subject is gone
     deleted_sub = await pg_db.get(Subject, subject.id)
     assert deleted_sub is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. Real Endpoint: Document Upload with Fake Storage (PostgreSQL)
+# ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.postgres
+async def test_pg_endpoint_document_upload_with_fake_storage(pg_client, pg_db):
+    """Test /api/v1/documents/upload persists storage metadata correctly in PostgreSQL."""
+    user = User(id=uuid.uuid4(), email=f"doc_{uuid.uuid4().hex[:6]}@pg.test", username=f"doc_{uuid.uuid4().hex[:6]}", hashed_password="h", role="student")
+    pg_db.add(user)
+    await pg_db.flush()
+
+    token = create_access_token(user.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    fake_storage = FakeStorageDriver()
+    set_storage_service(fake_storage)
+    orig_backend = settings.STORAGE_BACKEND
+    orig_bucket = settings.SUPABASE_STORAGE_BUCKET
+    settings.STORAGE_BACKEND = "fake"
+    settings.SUPABASE_STORAGE_BUCKET = "sais-private"
+
+    try:
+        pdf_bytes = _valid_pdf_bytes()
+        files = {"file": ("assignment.pdf", pdf_bytes, "application/pdf")}
+        resp = await pg_client.post("/api/v1/documents/upload", files=files, headers=headers)
+        assert resp.status_code == 202, resp.text
+        data = resp.json()
+        doc_id = uuid.UUID(data["id"])
+
+        # Verify persisted document in PostgreSQL
+        doc = await pg_db.get(Document, doc_id)
+        assert doc is not None
+        assert doc.original_filename == "assignment.pdf"
+        assert doc.storage_bucket == "sais-private"
+        assert doc.storage_path.startswith(f"documents/{user.id}/")
+        assert len(fake_storage.files) == 1
+    finally:
+        set_storage_service(None)
+        settings.STORAGE_BACKEND = orig_backend
+        settings.SUPABASE_STORAGE_BUCKET = orig_bucket
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. Real Endpoint: Personal Timetable Upload + Save with Fake Storage (PostgreSQL)
+# ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.postgres
+async def test_pg_endpoint_personal_timetable_upload_and_save_with_fake_storage(pg_client, pg_db):
+    """
+    Test personal timetable upload and save with fake storage.
+    Verifies that relaxed nullability on timetable_documents.file_path succeeds in PostgreSQL,
+    and storage cleanup is performed after schedule save.
+    """
+    user = User(id=uuid.uuid4(), email=f"tt_{uuid.uuid4().hex[:6]}@pg.test", username=f"tt_{uuid.uuid4().hex[:6]}", hashed_password="h", role="student")
+    pg_db.add(user)
+    await pg_db.flush()
+
+    token = create_access_token(user.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    fake_storage = FakeStorageDriver()
+    set_storage_service(fake_storage)
+    orig_backend = settings.STORAGE_BACKEND
+    orig_bucket = settings.SUPABASE_STORAGE_BUCKET
+    settings.STORAGE_BACKEND = "fake"
+    settings.SUPABASE_STORAGE_BUCKET = "sais-private"
+
+    try:
+        png_bytes = _valid_png_bytes(50, 50)
+        files = {"file": ("schedule.png", png_bytes, "image/png")}
+
+        with patch("app.services.gemini_timetable_extractor.GeminiTimetableExtractor.extract_from_image") as mock_extract:
+            mock_extract.return_value = {
+                "status": "success",
+                "entries": [{"subject": "Math", "day_of_week": 1, "start_time": "09:00", "end_time": "10:00"}],
+                "confidence": 0.9,
+                "layout_type": "horizontal",
+            }
+            resp = await pg_client.post("/api/v1/timetable/upload", files=files, headers=headers)
+            assert resp.status_code == 200, resp.text
+
+        # Verify TimetableDocument row in PostgreSQL
+        doc_stmt = select(TimetableDocument).where(TimetableDocument.user_id == user.id)
+        doc = (await pg_db.scalars(doc_stmt)).first()
+        assert doc is not None
+        assert doc.storage_bucket == "sais-private"
+        assert doc.storage_path is not None
+        assert len(fake_storage.files) == 1
+
+        # Save schedule entries
+        subj_stmt = select(Subject).where(Subject.user_id == user.id)
+        subj = (await pg_db.scalars(subj_stmt)).first()
+        assert subj is not None
+
+        bulk_payload = [
+            {
+                "subject_id": str(subj.id),
+                "day_of_week": 1,
+                "start_time": "09:00:00",
+                "end_time": "10:00:00",
+                "room": "101",
+            }
+        ]
+        save_resp = await pg_client.post("/api/v1/timetable/entries/bulk", json=bulk_payload, headers=headers)
+        assert save_resp.status_code == 200, save_resp.text
+
+        # Timetable image must be deleted from storage after save
+        assert len(fake_storage.files) == 0
+    finally:
+        set_storage_service(None)
+        settings.STORAGE_BACKEND = orig_backend
+        settings.SUPABASE_STORAGE_BUCKET = orig_bucket
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. Real Endpoint: Class Timetable Upload + Publish with Fake Storage (PostgreSQL)
+# ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.postgres
+async def test_pg_endpoint_class_timetable_upload_and_publish_with_fake_storage(pg_client, pg_db):
+    """
+    Test admin class timetable upload and publication with fake storage on PostgreSQL.
+    Verifies draft creation, storage persistence, atomic publishing, and storage cleanup.
+    """
+    inst = Institution(id=uuid.uuid4(), name="CT College", type="college", join_code=f"ct_{uuid.uuid4().hex[:6]}")
+    cohort = Cohort(id=uuid.uuid4(), institution_id=inst.id, name="CT-1A", level_type="college", level_value="year_1", academic_year="2026-2027", join_code=f"ctc_{uuid.uuid4().hex[:6]}")
+    admin = User(id=uuid.uuid4(), email=f"ct_adm_{uuid.uuid4().hex[:6]}@pg.test", username=f"ct_adm_{uuid.uuid4().hex[:6]}", hashed_password="h", role="admin", institution_id=inst.id)
+    pg_db.add_all([inst, cohort, admin])
+    await pg_db.flush()
+
+    token = create_access_token(admin.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    fake_storage = FakeStorageDriver()
+    set_storage_service(fake_storage)
+    orig_backend = settings.STORAGE_BACKEND
+    orig_bucket = settings.SUPABASE_STORAGE_BUCKET
+    settings.STORAGE_BACKEND = "fake"
+    settings.SUPABASE_STORAGE_BUCKET = "sais-private"
+
+    try:
+        png_bytes = _valid_png_bytes(60, 60)
+        files = {"file": ("class_schedule.png", png_bytes, "image/png")}
+
+        with patch("app.api.class_timetable.extract_timetable_from_image", new_callable=AsyncMock) as mock_extract:
+            mock_extract.return_value = {
+                "status": "success",
+                "extraction_method": "gemini",
+                "message": "Extracted successfully",
+                "entries": [
+                    {"day_of_week": 1, "start_time": "09:00", "end_time": "10:00", "subject": "Data Structures"}
+                ],
+            }
+            resp = await pg_client.post(f"/api/v1/admin/cohorts/{cohort.id}/timetable/extract", files=files, headers=headers)
+            assert resp.status_code == 200, resp.text
+
+        assert len(fake_storage.files) == 1
+
+        # Publish the draft timetable
+        pub_resp = await pg_client.post(f"/api/v1/admin/cohorts/{cohort.id}/timetable/publish", headers=headers, json={"force": False})
+        assert pub_resp.status_code == 200, pub_resp.text
+
+        # Image should be deleted from storage upon publish
+        assert len(fake_storage.files) == 0
+
+        # Verify published timetable in PostgreSQL
+        ct_stmt = select(ClassTimetable).where(ClassTimetable.cohort_id == cohort.id, ClassTimetable.status == "published")
+        published_ct = (await pg_db.scalars(ct_stmt)).first()
+        assert published_ct is not None
+        assert published_ct.status == "published"
+        assert published_ct.image_storage_path is None
+    finally:
+        set_storage_service(None)
+        settings.STORAGE_BACKEND = orig_backend
+        settings.SUPABASE_STORAGE_BUCKET = orig_bucket
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. College Events Deduplication Rule (PostgreSQL uq_college_events_dedup)
+# ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.postgres
+async def test_pg_college_events_dedup_rule(pg_db):
+    """
+    Test PostgreSQL functional unique index uq_college_events_dedup:
+    - Same event name and date at SAME college -> rejected (IntegrityError).
+    - Same event name and date at DIFFERENT colleges -> ALLOWED.
+    - Same event name across DIFFERENT institutions -> ALLOWED.
+    - Undated events (date is None or empty) at SAME college -> rejected.
+    - Undated events at DIFFERENT colleges -> ALLOWED.
+    """
+    inst1 = Institution(id=uuid.uuid4(), name="Inst Alpha", type="college", join_code=f"ia_{uuid.uuid4().hex[:6]}")
+    inst2 = Institution(id=uuid.uuid4(), name="Inst Beta", type="college", join_code=f"ib_{uuid.uuid4().hex[:6]}")
+    pg_db.add_all([inst1, inst2])
+    await pg_db.flush()
+
+    event_date = "2026-12-15"
+
+    # Rule 1: First event at College A (inst1)
+    ev1 = CollegeEvent(
+        id=uuid.uuid4(), institution_id=inst1.id, college="Inst Alpha",
+        event_name="Robotics Challenge", event_type="Tech",
+        event_date=event_date, source_url="https://alpha.edu/robo"
+    )
+    pg_db.add(ev1)
+    await pg_db.flush()
+
+    # Duplicate event at SAME institution -> must raise IntegrityError
+    ev1_dup = CollegeEvent(
+        id=uuid.uuid4(), institution_id=inst1.id, college="Inst Alpha",
+        event_name="  Robotics  Challenge  ", event_type="Tech",
+        event_date=event_date, source_url="https://alpha.edu/robo2"
+    )
+    with pytest.raises(IntegrityError):
+        async with pg_db.begin_nested():
+            pg_db.add(ev1_dup)
+            await pg_db.flush()
+
+    # Rule 2: Same event name and date at DIFFERENT institution (inst2) -> ALLOWED
+    ev2 = CollegeEvent(
+        id=uuid.uuid4(), institution_id=inst2.id, college="Inst Beta",
+        event_name="Robotics Challenge", event_type="Tech",
+        event_date=event_date, source_url="https://beta.edu/robo"
+    )
+    pg_db.add(ev2)
+    await pg_db.flush()
+    assert ev2.id is not None
+
+    # Rule 3: Scraped events without institution_id (institution_id=None):
+    # Same college -> rejected
+    ev_scraped1 = CollegeEvent(
+        id=uuid.uuid4(), institution_id=None, college="IIT Bombay",
+        event_name="Mood Indigo", event_type="Cultural",
+        event_date="2026-12-25", source_url="https://moodi.org"
+    )
+    pg_db.add(ev_scraped1)
+    await pg_db.flush()
+
+    ev_scraped1_dup = CollegeEvent(
+        id=uuid.uuid4(), institution_id=None, college="iit bombay",
+        event_name="mood indigo", event_type="Cultural",
+        event_date="2026-12-25", source_url="https://moodi.org/dup"
+    )
+    with pytest.raises(IntegrityError):
+        async with pg_db.begin_nested():
+            pg_db.add(ev_scraped1_dup)
+            await pg_db.flush()
+
+    # Rule 4: Same title and date at DIFFERENT college -> ALLOWED
+    ev_scraped_diff_college = CollegeEvent(
+        id=uuid.uuid4(), institution_id=None, college="BITS Pilani",
+        event_name="Mood Indigo", event_type="Cultural",
+        event_date="2026-12-25", source_url="https://bits.edu/moodi"
+    )
+    pg_db.add(ev_scraped_diff_college)
+    await pg_db.flush()
+    assert ev_scraped_diff_college.id is not None
+
+    # Rule 5: Undated event rule (event_date is None or empty string):
+    # Same college -> rejected
+    ev_undated1 = CollegeEvent(
+        id=uuid.uuid4(), institution_id=None, college="IIT Delhi",
+        event_name="Freshers Orientation", event_type="Orientation",
+        event_date=None, source_url="https://iitd.edu/freshers"
+    )
+    pg_db.add(ev_undated1)
+    await pg_db.flush()
+
+    ev_undated1_dup = CollegeEvent(
+        id=uuid.uuid4(), institution_id=None, college="IIT Delhi",
+        event_name="Freshers Orientation", event_type="Orientation",
+        event_date="", source_url="https://iitd.edu/freshers2"
+    )
+    with pytest.raises(IntegrityError):
+        async with pg_db.begin_nested():
+            pg_db.add(ev_undated1_dup)
+            await pg_db.flush()
+
+    # Undated at DIFFERENT college -> ALLOWED
+    ev_undated_other = CollegeEvent(
+        id=uuid.uuid4(), institution_id=None, college="IIT Madras",
+        event_name="Freshers Orientation", event_type="Orientation",
+        event_date=None, source_url="https://iitm.edu/freshers"
+    )
+    pg_db.add(ev_undated_other)
+    await pg_db.flush()
+    assert ev_undated_other.id is not None
+

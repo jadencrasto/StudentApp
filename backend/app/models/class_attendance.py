@@ -11,10 +11,11 @@ class ClassAttendanceRecord(Base):
         UniqueConstraint("cohort_id", "student_id", "class_date", "subject_name_normalized", name="uq_cohort_student_date_subject"),
         Index("ix_class_attendance_cohort_date", "cohort_id", "class_date"),
         Index("ix_class_attendance_student_cohort", "student_id", "cohort_id"),
+        Index("ix_class_attendance_records_inst_id", "institution_id"),
     )
 
     id:                      Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    institution_id:          Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    institution_id:          Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False)
     cohort_id:               Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, index=True)
     student_id:              Mapped[uuid.UUID]        = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     class_date:              Mapped[date]             = mapped_column(Date, nullable=False, index=True)
