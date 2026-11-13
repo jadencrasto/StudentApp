@@ -193,6 +193,20 @@ def check_schema_drift(test_url: str) -> None:
 
     asyncio.run(_verify())
 
+    # 4. Run formal Alembic check against models
+    check_env = os.environ.copy()
+    check_env["ENVIRONMENT"] = "test"
+    check_env["DATABASE_URL"] = test_url
+    check_env["ALEMBIC_DATABASE_URL"] = test_url
+    check_env["SECRET_KEY"] = "ci-test-secret-key-min-32-chars-strictly-for-testing"
+    check_env["ENV_FILE"] = ""
+    check_env["PYTHONPATH"] = str(BASE_DIR)
+    check_cmd = [sys.executable, "-m", "alembic", "-c", str(BASE_DIR / "alembic.ini"), "check"]
+    res = subprocess.run(check_cmd, cwd=str(BASE_DIR), env=check_env, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"Alembic check detected schema drift:\n{res.stdout}\n{res.stderr}")
+    print("[Runner] Alembic check: No schema drift detected between models and migrations.")
+
 
 def run_pytest_suite(test_url: str) -> None:
     """Run marked PostgreSQL tests via pytest."""

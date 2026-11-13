@@ -36,6 +36,21 @@ config.set_main_option("sqlalchemy.url", db_url)
 target_metadata = Base.metadata
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    """
+    Filter objects for Alembic autogenerate and schema comparison.
+    
+    uq_college_events_dedup is a custom PostgreSQL functional unique index
+    (using COALESCE, LOWER, REGEXP_REPLACE, and CASE expressions) created in
+    migration f5b7c3e1a9d2. Alembic cannot reverse-engineer expression-based
+    functional indexes into declarative model column tuples, so autogenerate
+    would mistakenly detect it as a removed index. We explicitly ignore it.
+    """
+    if type_ == "index" and name == "uq_college_events_dedup":
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
@@ -46,6 +61,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=is_sqlite,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -59,6 +75,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         render_as_batch=is_sqlite,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
