@@ -41,6 +41,27 @@ from app.config import settings  # noqa: E402
 settings.UPLOAD_DIR = _TEST_UPLOAD_DIR
 settings.STORAGE_BACKEND = "fake"
 from app.database import Base  # noqa: E402
+from app.core.test_safety import validate_test_database_url
+
+
+# ── Pytest Options & Hooks for PostgreSQL Tests ─────────────────────────
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-postgres",
+        action="store_true",
+        default=False,
+        help="Run tests marked with @pytest.mark.postgres against local PostgreSQL",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if not config.getoption("--run-postgres"):
+        skip_pg = pytest.mark.skip(reason="PostgreSQL test skipped. Pass --run-postgres to execute.")
+        for item in items:
+            if "postgres" in item.keywords:
+                item.add_marker(skip_pg)
+
 
 # ── 2. Create a separate async engine for tests ───────────────────────
 TEST_ENGINE = create_async_engine(
@@ -212,3 +233,74 @@ async def auth_token(client: AsyncClient, registered_user: dict) -> str:
 async def auth_headers(auth_token: str) -> dict:
     """Convenience: returns headers dict with Bearer token (bridged to cookie via event hook)."""
     return {"Authorization": f"Bearer {auth_token}"}
+
+
+# ── 5. PostgreSQL Test Fixtures (Enabled with --run-postgres) ─────────
+
+@pytest.fixture(scope="session")
+def postgres_url(request) -> str:
+    """Resolve and validate the test PostgreSQL URL (Guard Place 2)."""
+    if not request.config.getoption("--run-postgres"):
+        pytest.skip("PostgreSQL tests disabled. Pass --run-postgres to run them.")
+    url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not url or "sqlite" in url:
+        url = "postgresql+asyncpg://postgres@localhost:5432/sais_test"
+    validate_test_database_url(url, context="Pytest Conftest Guard")
+    return url
+
+
+@pytest_asyncio.fixture()
+async def pg_engine(postgres_url: str):
+    """Function-scoped async engine for PostgreSQL tests using NullPool to match event loops."""
+    from sqlalchemy.pool import NullPool
+    engine = create_async_engine(
+        postgres_url,
+        poolclass=NullPool,
+        echo=False,
+        future=True,
+    )
+    yield engine
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture()
+async def pg_db(pg_engine) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Per-test isolated AsyncSession against PostgreSQL.
+    Runs inside a transaction with a nested savepoint, then rolls back on exit
+    so each test starts with a clean database state.
+    """
+    async with pg_engine.connect() as conn:
+        trans = await conn.begin()
+        session_factory = async_sessionmaker(
+            bind=conn,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+        async with session_factory() as session:
+            yield session
+        await trans.rollback()
+
+
+@pytest_asyncio.fixture()
+async def pg_client(pg_db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """AsyncClient wired to the pg_db session for FastAPI endpoint testing."""
+    from app.main import app
+    from app.database import get_db
+
+    async def _get_pg_db_override():
+        yield pg_db
+
+    app.dependency_overrides[get_db] = _get_pg_db_override
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-Requested-With": "XMLHttpRequest"},
+        event_hooks={"request": [_bridge_auth_to_cookie]},
+    ) as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
