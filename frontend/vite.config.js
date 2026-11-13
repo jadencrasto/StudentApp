@@ -19,5 +19,11 @@ export default defineConfig({
       '/extract': { target: 'http://127.0.0.1:8000' },
       '/health': { target: 'http://127.0.0.1:8000' },
     }
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.js',
+    include: ['src/**/*.{test,spec}.jsx'],
   }
 })
