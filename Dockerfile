@@ -8,6 +8,9 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /build
 
+# Ensure Playwright never downloads browser binaries during container build
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 # Copy dependency manifests first to leverage layer caching
 COPY frontend/package*.json ./
 RUN npm ci

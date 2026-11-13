@@ -132,7 +132,16 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
 
     class Config:
-        env_file = ".env"
+        # If ENV_FILE is explicitly set (e.g. to a test env or empty string), honor it.
+        # If ENVIRONMENT == "test", never load backend/.env automatically.
+        _env_override = os.getenv("ENV_FILE")
+        if _env_override is not None:
+            env_file = _env_override if _env_override.strip() else None
+        elif os.getenv("ENVIRONMENT") == "test":
+            env_file = None
+        else:
+            env_file = ".env"
+
         case_sensitive = True
         extra = "ignore"
 

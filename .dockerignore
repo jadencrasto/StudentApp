@@ -5,8 +5,15 @@
 # Environment files & Secrets
 .env*
 *.env
+.env.test
+backend/.env.test
 backend/.env*
 frontend/.env*
+
+# Test & E2E artifacts
+test-results/
+playwright-report/
+.playwright/
 
 # Student / admin credentials & sheets
 student_credentials.xlsx

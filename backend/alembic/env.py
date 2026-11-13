@@ -23,6 +23,10 @@ if config.config_file_name is not None:
 
 # Set the SQLAlchemy URL from app settings or environment override
 db_url = os.getenv("ALEMBIC_DATABASE_URL") or settings.DATABASE_URL
+if os.getenv("ENVIRONMENT") == "test" or os.getenv("ALEMBIC_DATABASE_URL"):
+    from app.core.test_safety import validate_test_database_url
+    validate_test_database_url(db_url, context="Alembic Migration Guard")
+
 if db_url.startswith("postgres://"):
     db_url = "postgresql+asyncpg://" + db_url[len("postgres://"):]
 elif db_url.startswith("postgresql://"):

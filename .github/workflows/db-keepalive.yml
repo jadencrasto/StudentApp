@@ -37,6 +37,7 @@ jobs:
       - name: Ping database with SELECT 1
         env:
           PGDATABASE_URL: ${{ secrets.SUPABASE_KEEPALIVE_DSN }}
+          PGCONNECT_TIMEOUT: "10"
         run: |
           if [ -z "$PGDATABASE_URL" ]; then
             echo "::error::SUPABASE_KEEPALIVE_DSN secret is not set. Add it in Settings > Secrets > Actions."
@@ -46,8 +47,7 @@ jobs:
           sudo apt-get -qq update && sudo apt-get -qq install -y postgresql-client > /dev/null 2>&1
           # Run SELECT 1 with 10s timeout, -w = never prompt for password
           # Capture stderr for diagnostics; stdout to /dev/null
-          PSQL_ERR=$(psql -w "$PGDATABASE_URL" -c "SELECT 1;" \
-                     -v connect_timeout=10 2>&1 >/dev/null) && RC=0 || RC=$?
+          PSQL_ERR=$(psql -w "$PGDATABASE_URL" -c "SELECT 1;" 2>&1 >/dev/null) && RC=0 || RC=$?
           if [ "$RC" -eq 0 ]; then
             echo "Keep-alive: connected successfully at $(date -u)"
           else

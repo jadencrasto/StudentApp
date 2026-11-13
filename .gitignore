@@ -32,7 +32,14 @@ ENV/
 .env.local
 .env.*.local
 .env.old_supabase
+.env.test
+backend/.env.test
 *.env
+
+# Test & E2E artifacts
+test-results/
+playwright-report/
+.playwright/
 
 # Node & Frontend
 node_modules/
