@@ -16,13 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.rate_limiter import limiter, hydrate_rate_limiters_from_db
-from app.database import (
-    engine, Base, get_db,
-    ensure_assignment_ai_metadata_column, ensure_assignment_classroom_id_column,
-    ensure_activity_recurrence_columns, ensure_notification_columns,
-    ensure_attendance_slot_columns, ensure_phase5a_columns, ensure_phase6a_columns,
-    ensure_phase6b_tables, ensure_phase6c_tables, ensure_phase6d_tables,
-)
+from app.database import engine, Base, get_db
 from app.models import *  # noqa
 
 from app.api.auth        import router as auth_router
@@ -48,6 +42,10 @@ from app.api.class_marks import router as class_marks_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
+    if settings.ENVIRONMENT == "test" or os.getenv("ENVIRONMENT") == "test":
+        from app.core.test_safety import validate_test_database_url
+        validate_test_database_url(settings.DATABASE_URL, context="App Startup Test Guard")
+
     settings.validate_production_security()
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     # Storage service initialization & private bucket check
@@ -67,23 +65,14 @@ async def lifespan(app: FastAPI):
         if settings.DEBUG:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-        await ensure_assignment_ai_metadata_column()
-        await ensure_assignment_classroom_id_column()
-        await ensure_activity_recurrence_columns()
-        await ensure_notification_columns()
-        await ensure_attendance_slot_columns()
-        await ensure_phase5a_columns()
-        await ensure_phase6a_columns()
-        await ensure_phase6b_tables()
-        await ensure_phase6c_tables()
-        await ensure_phase6d_tables()
     await hydrate_rate_limiters_from_db()
     # Seed demo user for development only if explicitly enabled
     if settings.SEED_DEMO_USER:
         await _seed_demo_user()
-    from app.scheduler import start_scheduler, stop_scheduler, run_startup_catchup
-    start_scheduler()
-    await run_startup_catchup()
+    if settings.ENVIRONMENT != "test" and os.getenv("ENVIRONMENT") != "test":
+        from app.scheduler import start_scheduler, stop_scheduler, run_startup_catchup
+        start_scheduler()
+        await run_startup_catchup()
     try:
         yield
     except asyncio.CancelledError:
